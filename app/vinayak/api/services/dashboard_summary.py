@@ -7,10 +7,14 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from vinayak.validation.trade_evaluation import build_trade_evaluation_summary
 from vinayak.analytics.readiness import evaluate_readiness
+from vinayak.db.models.execution import ExecutionRecord
+from vinayak.db.models.execution_audit_log import ExecutionAuditLogRecord
+from vinayak.db.models.reviewed_trade import ReviewedTradeRecord
 from vinayak.db.repositories.execution_audit_log_repository import ExecutionAuditLogRepository
 from vinayak.db.repositories.execution_repository import ExecutionRepository
 from vinayak.db.repositories.reviewed_trade_repository import ReviewedTradeRepository
@@ -105,23 +109,39 @@ class DashboardSummaryService:
         )
 
     def build_summary(self) -> dict[str, object]:
-        reviewed_trades = self.reviewed_trade_repository.list_reviewed_trades()
-        executions = self.execution_repository.list_executions()
-        audit_logs = self.execution_audit_log_repository.list_audit_logs()
-
-        reviewed_trade_counts = Counter(record.status.upper() for record in reviewed_trades)
-        execution_mode_counts = Counter(record.mode.upper() for record in executions)
-        execution_status_counts = Counter(record.status.upper() for record in executions)
-        audit_status_counts = Counter(record.status.upper() for record in audit_logs)
-        recent_audit_failures = sum(1 for record in audit_logs if record.status.upper() in {'BLOCKED', 'REJECTED', 'ERROR'})
+        reviewed_trade_counts = self._grouped_counts(ReviewedTradeRecord.status)
+        execution_mode_counts = self._grouped_counts(ExecutionRecord.mode)
+        execution_status_counts = self._grouped_counts(ExecutionRecord.status)
+        audit_status_counts = self._grouped_counts(ExecutionAuditLogRecord.status)
+        recent_audit_failures = self._recent_audit_failures_count()
 
         return {
             'broker_ready': self.dhan_client.is_ready(),
             'broker_name': 'DHAN',
-            'reviewed_trade_counts': dict(reviewed_trade_counts),
-            'execution_mode_counts': dict(execution_mode_counts),
-            'execution_status_counts': dict(execution_status_counts),
-            'audit_status_counts': dict(audit_status_counts),
+            'reviewed_trade_counts': reviewed_trade_counts,
+            'execution_mode_counts': execution_mode_counts,
+            'execution_status_counts': execution_status_counts,
+            'audit_status_counts': audit_status_counts,
             'recent_audit_failures': recent_audit_failures,
             'validation_summary': _validation_snapshot(DEFAULT_PAPER_LOG_PATH),
         }
+
+    def _grouped_counts(self, column) -> dict[str, int]:
+        rows = self.session.execute(
+            select(column, func.count()).group_by(column)
+        ).all()
+        return {
+            str(value or '').upper(): int(count or 0)
+            for value, count in rows
+            if str(value or '').strip()
+        }
+
+    def _recent_audit_failures_count(self) -> int:
+        return int(
+            self.session.execute(
+                select(func.count())
+                .select_from(ExecutionAuditLogRecord)
+                .where(ExecutionAuditLogRecord.status.in_(['BLOCKED', 'REJECTED', 'ERROR']))
+            ).scalar_one()
+            or 0
+        )

@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from vinayak.api.services.dashboard_summary import DashboardSummaryService
@@ -36,11 +37,14 @@ class RoleViewService:
         self.session = session
         self.cache = _REDIS_CACHE
         self._latest_analysis_cache: dict[str, Any] | None = None
+        self._trade_history_cache: dict[int, list[dict[str, Any]]] = {}
+        self._sorted_trade_history_cache: list[dict[str, Any]] | None = None
 
     def build_admin_dashboard(self) -> dict[str, Any]:
         summary = DashboardSummaryService(self.session).build_summary() if self.session is not None else {}
         latest_analysis = self.load_latest_analysis()
-        latest_signal = self.build_user_signal()
+        history = self.load_trade_history(limit=1)
+        latest_signal = self.build_user_signal(analysis=latest_analysis, history=history)
         admin_debug = self.build_admin_debug(latest_analysis)
         return {
             'summary': summary,
@@ -50,8 +54,8 @@ class RoleViewService:
         }
 
     def build_user_home(self) -> dict[str, Any]:
-        latest_signal = self.build_user_signal()
         history = self.load_trade_history(limit=25)
+        latest_signal = self.build_user_signal(history=history)
         return {
             'latest_signal': latest_signal,
             'history_count': len(history),
@@ -92,7 +96,7 @@ class RoleViewService:
                 'reason': 'NO_ANALYSIS_RUN_YET',
             }
         return {
-            'latest_signal': self.build_user_signal(),
+            'latest_signal': self.build_user_signal(analysis=latest_analysis, history=history),
             'admin_debug': self.build_admin_debug(latest_analysis),
             'validation_summary': validation_summary,
             'empty_state': empty_state,
@@ -100,7 +104,8 @@ class RoleViewService:
 
     def build_execution_page(self) -> dict[str, Any]:
         history = self.load_trade_history(limit=50)
-        paper_summary = dict(self.load_latest_analysis().get('execution_summary', {}) or {})
+        latest_analysis = self.load_latest_analysis()
+        paper_summary = dict(latest_analysis.get('execution_summary', {}) or {})
         snapshot = get_observability_snapshot()
         deferred_execution_metrics = {
             'enqueued_total': int(float(snapshot.get('metrics', {}).get('live_analysis_deferred_execution_enqueued_total', {}).get('value', 0) or 0)),
@@ -112,7 +117,7 @@ class RoleViewService:
         return {
             'history': history,
             'paper_summary': paper_summary,
-            'latest_signal': self.build_user_signal(),
+            'latest_signal': self.build_user_signal(analysis=latest_analysis, history=history),
             'deferred_execution_metrics': deferred_execution_metrics,
             'deferred_execution_jobs': self.load_deferred_execution_jobs(limit=20),
         }
@@ -135,10 +140,15 @@ class RoleViewService:
             }
         }
 
-    def build_user_signal(self) -> dict[str, Any]:
-        analysis = self.load_latest_analysis()
+    def build_user_signal(
+        self,
+        *,
+        analysis: dict[str, Any] | None = None,
+        history: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        analysis = analysis if analysis is not None else self.load_latest_analysis()
         signal = dict(analysis.get('signals', [{}])[-1] if analysis.get('signals') else {})
-        history = self.load_trade_history(limit=1)
+        history = history if history is not None else self.load_trade_history(limit=1)
         if not signal and history:
             signal = dict(history[0])
         side = str(signal.get('side', '') or '').upper()
@@ -196,6 +206,13 @@ class RoleViewService:
             .limit(max(int(limit), 1))
             .all()
         )
+        outbox_ids = sorted({int(row.outbox_event_id) for row in rows if row.outbox_event_id})
+        outbox_by_id: dict[int, OutboxEventRecord] = {}
+        if outbox_ids:
+            outbox_rows = self.session.execute(
+                select(OutboxEventRecord).where(OutboxEventRecord.id.in_(outbox_ids))
+            ).scalars()
+            outbox_by_id = {int(row.id): row for row in outbox_rows}
         jobs: list[dict[str, Any]] = []
         for row in rows:
             payload: dict[str, Any] = {}
@@ -208,7 +225,7 @@ class RoleViewService:
             outbox_status = '-'
             outbox_last_error = ''
             if row.outbox_event_id:
-                outbox_record = self.session.get(OutboxEventRecord, int(row.outbox_event_id))
+                outbox_record = outbox_by_id.get(int(row.outbox_event_id))
                 if outbox_record is not None:
                     outbox_status = str(outbox_record.status or '')
                     outbox_last_error = str(outbox_record.last_error or '')
@@ -232,17 +249,14 @@ class RoleViewService:
         return jobs
 
     def load_trade_history(self, limit: int = 50) -> list[dict[str, Any]]:
-        rows = self._read_csv_rows(DEFAULT_PAPER_LOG_PATH)
-        if not rows:
-            return []
-        sort_key = None
-        for column in ('executed_at_utc', 'exit_time', 'entry_time', 'signal_time', 'timestamp'):
-            if column in rows[0]:
-                sort_key = column
-                break
-        if sort_key:
-            rows = sorted(rows, key=lambda row: str(row.get(sort_key, '') or ''), reverse=True)
-        return rows[:max(int(limit), 1)]
+        resolved_limit = max(int(limit), 1)
+        cached = self._trade_history_cache.get(resolved_limit)
+        if cached is not None:
+            return [dict(row) for row in cached]
+        rows = self._sorted_trade_history()
+        sliced = [dict(row) for row in rows[:resolved_limit]]
+        self._trade_history_cache[resolved_limit] = sliced
+        return [dict(row) for row in sliced]
 
     def load_logs(self, limit: int = 50) -> dict[str, str]:
         return {name: self._tail_text(path, limit=limit) for name, path in DEFAULT_LOGS.items()}
@@ -293,6 +307,23 @@ class RoleViewService:
                 return [dict(row) for row in csv.DictReader(handle) if row]
 
         return self._read_cached_file(path, kind='csv', loader=loader, empty_value=[])
+
+    def _sorted_trade_history(self) -> list[dict[str, Any]]:
+        if self._sorted_trade_history_cache is not None:
+            return [dict(row) for row in self._sorted_trade_history_cache]
+        rows = self._read_csv_rows(DEFAULT_PAPER_LOG_PATH)
+        if not rows:
+            self._sorted_trade_history_cache = []
+            return []
+        sort_key = None
+        for column in ('executed_at_utc', 'exit_time', 'entry_time', 'signal_time', 'timestamp'):
+            if column in rows[0]:
+                sort_key = column
+                break
+        if sort_key:
+            rows = sorted(rows, key=lambda row: str(row.get(sort_key, '') or ''), reverse=True)
+        self._sorted_trade_history_cache = [dict(row) for row in rows]
+        return [dict(row) for row in self._sorted_trade_history_cache]
 
     def _read_json_file(self, path: Path) -> Any:
         def loader(target: Path) -> Any:
