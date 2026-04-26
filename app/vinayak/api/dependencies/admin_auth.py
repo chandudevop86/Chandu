@@ -1,74 +1,68 @@
-import hashlib
+from __future__ import annotations
 
+import jwt
+from datetime import datetime, timedelta
 from fastapi import HTTPException, Request
 
-from vinayak.auth.service import ADMIN_ROLE, AuthenticatedUser, UserAuthService
+from vinayak.auth.service import ADMIN_ROLE, AuthenticatedUser
 from vinayak.core.config import get_settings
-from vinayak.db.session import build_session_factory
 
+
+# =========================
+# CONFIG
+# =========================
 
 settings = get_settings()
-COOKIE_NAME = settings.auth.session_cookie_name
-LEGACY_COOKIE_NAME = settings.auth.legacy_session_cookie_name
+
+JWT_SECRET = settings.auth.admin_secret
+JWT_ALGO = "HS256"
+COOKIE_NAME = settings.auth.session_cookie_name or "vinayak_token"
+TOKEN_EXP_HOURS = 8
 
 
-def auto_login_enabled() -> bool:
-    settings = get_settings()
-    if settings.runtime.is_production:
-        return False
-    return settings.auth.auto_login_enabled
+# =========================
+# TOKEN CREATION
+# =========================
+
+def create_session_token(user: AuthenticatedUser) -> str:
+    payload = {
+        "user_id": user.id,
+        "username": user.username,
+        "role": str(user.role).upper(),
+        "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXP_HOURS),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
 
-def admin_username() -> str:
-    return UserAuthService.admin_username()
-
-
-def admin_password() -> str:
-    return UserAuthService.admin_password()
-
-
-def admin_secret() -> str:
-    return UserAuthService.auth_secret()
-
-
-def session_token() -> str:
-    seed = f'{admin_username()}:{admin_password()}:{admin_secret()}'
-    return hashlib.sha256(seed.encode('utf-8')).hexdigest()
-
-
-def _load_user_from_session_token(raw_token: str | None) -> AuthenticatedUser | None:
-    session_factory = build_session_factory()
-    session = session_factory()
-    try:
-        service = UserAuthService(session)
-        return service.get_authenticated_user(raw_token)
-    finally:
-        session.close()
-
-
-def _load_default_admin_user() -> AuthenticatedUser | None:
-    session_factory = build_session_factory()
-    session = session_factory()
-    try:
-        service = UserAuthService(session)
-        record = service.ensure_default_admin()
-        return AuthenticatedUser(
-            id=record.id,
-            username=record.username,
-            role=record.role,
-            is_active=record.is_active,
-        )
-    finally:
-        session.close()
-
+# =========================
+# USER LOADER
+# =========================
 
 def get_current_user(request: Request) -> AuthenticatedUser | None:
-    raw_token = request.cookies.get(COOKIE_NAME) or request.cookies.get(LEGACY_COOKIE_NAME)
-    user = _load_user_from_session_token(raw_token)
-    if user is not None:
-        return user
-    return None
+    token = request.cookies.get(COOKIE_NAME)
 
+    if not token:
+        return None
+
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+
+        return AuthenticatedUser(
+            id=payload.get("user_id"),
+            username=payload.get("username"),
+            role=payload.get("role"),
+            is_active=True,
+        )
+
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+
+# =========================
+# HELPERS
+# =========================
 
 def is_authenticated(request: Request) -> bool:
     return get_current_user(request) is not None
@@ -76,13 +70,33 @@ def is_authenticated(request: Request) -> bool:
 
 def require_user_session(request: Request) -> AuthenticatedUser:
     user = get_current_user(request)
-    if user is None:
-        raise HTTPException(status_code=401, detail='Authentication required.')
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required.")
     return user
 
 
 def require_admin_session(request: Request) -> AuthenticatedUser:
     user = require_user_session(request)
+
     if str(user.role).upper() != ADMIN_ROLE:
-        raise HTTPException(status_code=403, detail='Admin authentication required.')
+        raise HTTPException(status_code=403, detail="Admin authentication required.")
+
     return user
+
+
+# =========================
+# COOKIE HELPERS
+# =========================
+
+def set_auth_cookie(response, token: str):
+    response.set_cookie(
+        COOKIE_NAME,
+        token,
+        httponly=True,
+        secure=False,   # set True in production HTTPS
+        samesite="lax",
+    )
+
+
+def clear_auth_cookie(response):
+    response.delete_cookie(COOKIE_NAME)
