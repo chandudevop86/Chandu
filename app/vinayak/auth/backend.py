@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-
+from vinayak.auth.constants import COOKIE_NAME
 
 from vinayak.auth.service import ADMIN_ROLE, AuthenticatedUser, UserAuthService
 from vinayak.core.config import get_settings
-from vinayak.api.dependencies.admin_auth import COOKIE_NAME
+
 
 class WebAuthBackend:
     """Encapsulates login/logout behavior for the web surface."""
