@@ -54,18 +54,19 @@ class ProductionSignalService:
             MarketDataRequest(symbol=symbol, timeframe=timeframe, lookback=lookback)
         )
         timeframe_value = self._timeframe(timeframe)
+        candle_frame = provider_result.frame.tail(lookback)
         candles = tuple(
             Candle(
                 symbol=symbol,
                 timeframe=timeframe_value,
-                timestamp=row["timestamp"].to_pydatetime(),
-                open=Decimal(str(row["open"])),
-                high=Decimal(str(row["high"])),
-                low=Decimal(str(row["low"])),
-                close=Decimal(str(row["close"])),
-                volume=Decimal(str(row["volume"])),
+                timestamp=row.timestamp.to_pydatetime(),
+                open=Decimal(str(row.open)),
+                high=Decimal(str(row.high)),
+                low=Decimal(str(row.low)),
+                close=Decimal(str(row.close)),
+                volume=Decimal(str(row.volume)),
             )
-            for _, row in provider_result.frame.tail(lookback).iterrows()
+            for row in candle_frame.itertuples(index=False)
         )
         candle_batch = CandleBatch(symbol=symbol, timeframe=timeframe_value, candles=candles)
         strategy_config = StrategyConfig(

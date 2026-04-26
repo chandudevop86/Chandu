@@ -187,18 +187,21 @@ class LiveAnalysisJobService:
     def process_next_pending_job(self) -> bool:
         session = self._session_factory()
         repo = LiveAnalysisJobRepository(session)
-        recovered = repo.requeue_stale_running_jobs()
-        if recovered:
-            increment_metric('live_analysis_job_recovered_total', recovered)
-        record = repo.claim_next_pending_job()
-        if record is None:
-            self._refresh_queue_metrics(repo, force=True)
+        try:
+            recovered = repo.requeue_stale_running_jobs()
+            if recovered:
+                increment_metric('live_analysis_job_recovered_total', recovered)
+            record = repo.claim_next_pending_job()
+            if record is None:
+                self._refresh_queue_metrics(repo, force=True)
+                return False
+            payload = repo.parse_request_payload(record)
+            job_id = str(record.id)
+            session.commit()
+            increment_metric('live_analysis_job_claimed_total', 1)
+            self._refresh_queue_metrics(repo)
+        finally:
             session.close()
-            return False
-        session.commit()
-        increment_metric('live_analysis_job_claimed_total', 1)
-        self._refresh_queue_metrics(repo)
-        payload = repo.parse_request_payload(record)
         try:
             result = run_live_trading_analysis(
                 symbol=str(payload.get('symbol', '^NSEI') or '^NSEI'),
@@ -239,7 +242,7 @@ class LiveAnalysisJobService:
                 max_portfolio_exposure_pct=payload.get('max_portfolio_exposure_pct'),
                 max_open_risk_pct=payload.get('max_open_risk_pct'),
                 kill_switch_enabled=bool(payload.get('kill_switch_enabled', False)),
-                db_session=session,
+                db_session=None,
                 persist_reports=False,
                 publish_completion_event=False,
                 deliver_telegram_inline=False,
@@ -254,40 +257,52 @@ class LiveAnalysisJobService:
                 symbol=str(payload.get('symbol', '') or ''),
                 strategy=str(payload.get('strategy', '') or ''),
                 message='Persistent live-analysis job failed',
-                context_json={'job_id': record.id},
+                context_json={'job_id': job_id},
             )
-            repo.mark_failed(record, str(exc))
-            session.commit()
-            increment_metric('live_analysis_job_failed_total', 1)
-            self._refresh_queue_metrics(repo)
-            session.close()
+            session = self._session_factory()
+            try:
+                repo = LiveAnalysisJobRepository(session)
+                record = repo.get_job(job_id)
+                if record is not None:
+                    repo.mark_failed(record, str(exc))
+                    session.commit()
+                increment_metric('live_analysis_job_failed_total', 1)
+                self._refresh_queue_metrics(repo)
+            finally:
+                session.close()
             return True
         deferred_execution_payload = _build_deferred_execution_payload(payload, result)
-        repo.mark_succeeded(record, result)
-        if deferred_execution_payload is not None:
-            deferred_repo = DeferredExecutionJobRepository(session)
-            deferred_job = deferred_repo.create_job(
-                job_id=str(uuid4()),
-                source_job_id=record.id,
-                symbol=str(deferred_execution_payload.get('symbol', '') or ''),
-                strategy=str(deferred_execution_payload.get('strategy', '') or ''),
-                execution_mode=str(deferred_execution_payload.get('execution_mode', '') or ''),
-                signal_count=len(list(deferred_execution_payload.get('signals', []) or [])),
-                request_payload=deferred_execution_payload,
-            )
-            deferred_execution_payload['deferred_execution_job_id'] = deferred_job.id
-            outbox = OutboxService(session)
-            outbox_event = outbox.enqueue(
-                event_name=EVENT_DEFERRED_EXECUTION_REQUESTED,
-                payload=deferred_execution_payload,
-                source='live_analysis_jobs',
-            )
-            deferred_repo.attach_outbox_event(deferred_job, outbox_event_id=outbox_event.id)
-            increment_metric('live_analysis_deferred_execution_enqueued_total', 1)
-        session.commit()
-        increment_metric('live_analysis_job_succeeded_total', 1)
-        self._refresh_queue_metrics(repo)
-        session.close()
+        session = self._session_factory()
+        try:
+            repo = LiveAnalysisJobRepository(session)
+            record = repo.get_job(job_id)
+            if record is not None:
+                repo.mark_succeeded(record, result)
+                if deferred_execution_payload is not None:
+                    deferred_repo = DeferredExecutionJobRepository(session)
+                    deferred_job = deferred_repo.create_job(
+                        job_id=str(uuid4()),
+                        source_job_id=record.id,
+                        symbol=str(deferred_execution_payload.get('symbol', '') or ''),
+                        strategy=str(deferred_execution_payload.get('strategy', '') or ''),
+                        execution_mode=str(deferred_execution_payload.get('execution_mode', '') or ''),
+                        signal_count=len(list(deferred_execution_payload.get('signals', []) or [])),
+                        request_payload=deferred_execution_payload,
+                    )
+                    deferred_execution_payload['deferred_execution_job_id'] = deferred_job.id
+                    outbox = OutboxService(session)
+                    outbox_event = outbox.enqueue(
+                        event_name=EVENT_DEFERRED_EXECUTION_REQUESTED,
+                        payload=deferred_execution_payload,
+                        source='live_analysis_jobs',
+                    )
+                    deferred_repo.attach_outbox_event(deferred_job, outbox_event_id=outbox_event.id)
+                    increment_metric('live_analysis_deferred_execution_enqueued_total', 1)
+                session.commit()
+            increment_metric('live_analysis_job_succeeded_total', 1)
+            self._refresh_queue_metrics(repo)
+        finally:
+            session.close()
         return True
 
 
