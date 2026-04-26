@@ -185,6 +185,8 @@ class LiveAnalysisJobService:
             session.close()
 
     def process_next_pending_job(self) -> bool:
+        payload: dict[str, Any] = {}
+        job_id: str | None = None
         session = self._session_factory()
         repo = LiveAnalysisJobRepository(session)
         try:
@@ -195,7 +197,7 @@ class LiveAnalysisJobService:
             if record is None:
                 self._refresh_queue_metrics(repo, force=True)
                 return False
-            payload = repo.parse_request_payload(record)
+            payload = repo.parse_request_payload(record) or {}
             job_id = str(record.id)
             session.commit()
             increment_metric('live_analysis_job_claimed_total', 1)
@@ -254,8 +256,8 @@ class LiveAnalysisJobService:
                 component='live_analysis_jobs',
                 event_name='live_analysis_job_failed',
                 exc=exc,
-                symbol=str(payload.get('symbol', '') or ''),
-                strategy=str(payload.get('strategy', '') or ''),
+                symbol=str(payload.get('symbol', '') if payload else ''),
+                strategy=str(payload.get('strategy', '') if payload else ''),
                 message='Persistent live-analysis job failed',
                 context_json={'job_id': job_id},
             )
@@ -286,7 +288,7 @@ class LiveAnalysisJobService:
                         symbol=str(deferred_execution_payload.get('symbol', '') or ''),
                         strategy=str(deferred_execution_payload.get('strategy', '') or ''),
                         execution_mode=str(deferred_execution_payload.get('execution_mode', '') or ''),
-                        signal_count=len(list(deferred_execution_payload.get('signals', []) or [])),
+                        signal_count=len(deferred_execution_payload.get('signals', []) or []),
                         request_payload=deferred_execution_payload,
                     )
                     deferred_execution_payload['deferred_execution_job_id'] = deferred_job.id
@@ -305,6 +307,12 @@ class LiveAnalysisJobService:
             session.close()
         return True
 
+import time
+
+while True:
+     worked = process_next_live_analysis_job()
+     if not worked:
+        time.sleep(2)
 
 _JOB_SERVICE = LiveAnalysisJobService()
 
