@@ -478,5 +478,10 @@ def admin_login(username: str = Form(...), password: str = Form(...), db: Sessio
 def admin_logout():
     return WebAuthBackend.build_logout_response(redirect_to='/admin')
 
-
+@router.get('/admin/login', response_class=HTMLResponse)
+def admin_login_page():
+    return _render_login(
+        'Admin sign in to access the dashboard.',
+        form_action='/admin/login'
+    )
 

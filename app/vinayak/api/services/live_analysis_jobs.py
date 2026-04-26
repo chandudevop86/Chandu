@@ -307,12 +307,6 @@ class LiveAnalysisJobService:
             session.close()
         return True
 
-import time
-
-while True:
-     worked = process_next_live_analysis_job()
-     if not worked:
-        time.sleep(2)
 
 _JOB_SERVICE = LiveAnalysisJobService()
 
