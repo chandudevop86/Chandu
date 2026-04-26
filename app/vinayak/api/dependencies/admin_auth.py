@@ -100,3 +100,6 @@ def set_auth_cookie(response, token: str):
 
 def clear_auth_cookie(response):
     response.delete_cookie(COOKIE_NAME)
+
+COOKIE_NAME = settings.auth.session_cookie_name or "vinayak_token"
+LEGACY_COOKIE_NAME = settings.auth.legacy_session_cookie_name or "vinayak_admin_session"
