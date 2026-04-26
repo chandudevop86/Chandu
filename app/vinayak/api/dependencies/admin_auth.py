@@ -6,7 +6,7 @@ from fastapi import HTTPException, Request
 
 from vinayak.auth.service import ADMIN_ROLE, AuthenticatedUser
 from vinayak.core.config import get_settings
-
+from vinayak.api.dependencies.admin_auth import COOKIE_NAME
 
 # =========================
 # CONFIG
