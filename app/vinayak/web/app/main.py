@@ -55,7 +55,7 @@ def admin_dashboard_data(
 app=FastAPI()
 @app.middleware('http')
 async def force_https(request:Request,call_next)
-  if request.url.scheme=="http":
+  if request.url.scheme == "http":
      url = request.url.replaace(scheme="https")
      return RedirectResponse(url)
      return await call_next(request) 
