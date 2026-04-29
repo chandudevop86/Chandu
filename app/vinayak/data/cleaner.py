@@ -1,12 +1,5 @@
-# vinayak/data/cleaner.py
-
-from dataclasses import dataclass
-
-
-@dataclass
 class CleanerConfig:
-    remove_nulls: bool = True
-    normalize_dates: bool = True
+    pass
 
 
 class OHLCVValidationError(Exception):
@@ -14,8 +7,4 @@ class OHLCVValidationError(Exception):
 
 
 def coerce_ohlcv(data):
-    """
-    Temporary stub to prevent crash.
-    Replace with real cleaning logic later.
-    """
     return data
