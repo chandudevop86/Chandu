@@ -13,7 +13,7 @@ from vinayak.db.repositories.signal_repository import SignalRepository
 from vinayak.observability.alerting import build_active_alerts
 from vinayak.observability.observability_logger import tail_events
 from vinayak.observability.observability_metrics import get_observability_snapshot
-from vinayak.db.engine import get_session_factory
+from vinayak.db.engine import build_session_factory
 
 _REDIS_CACHE = RedisCache.from_env()
 _LATEST_ANALYSIS_TTL_SECONDS = 2.0
