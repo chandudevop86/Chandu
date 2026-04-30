@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from vinayak.db.session import Base
+from vinayak.db.base import Base
 
 
 class ExecutionRecord(Base):
