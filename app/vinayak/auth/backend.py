@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-"""Backend helpers for web login and logout flows."""
-
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from vinayak.auth.constants import COOKIE_NAME
-
 from vinayak.auth.service import ADMIN_ROLE, AuthenticatedUser, UserAuthService
 
 
 class WebAuthBackend:
-    """Encapsulates login/logout behavior for the web surface."""
-
     def __init__(self, session: Session) -> None:
         self.auth = UserAuthService(session)
 
@@ -20,10 +15,15 @@ class WebAuthBackend:
         return self.auth.authenticate(username, password)
 
     def login_admin(self, username: str, password: str) -> AuthenticatedUser | None:
-        self.auth.ensure_default_admin()
+        # ✅ DB-based auth only (no ENV dependency)
         user = self.auth.authenticate(username, password)
-        if user is None or str(user.role).upper() != ADMIN_ROLE:
+
+        if user is None:
             return None
+
+        if str(user.role).upper() != ADMIN_ROLE:
+            return None
+
         return user
 
     def build_login_response(self, user: AuthenticatedUser, *, redirect_to: str) -> RedirectResponse:
@@ -33,7 +33,7 @@ class WebAuthBackend:
             value=self.auth.create_session_token(user),
             httponly=True,
             samesite='lax',
-            secure=False,  # 🔥 CRITICAL FIX (must be False for HTTP)
+            secure=False,  # OK for HTTP (change to True when using HTTPS)
         )
         return response
 
