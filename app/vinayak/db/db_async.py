@@ -4,7 +4,6 @@ import asyncio
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
-from vinayak.db.db_async import build_session_factory
 from fastapi import FastAPI, Depends
 from sqlalchemy import text, select
 from sqlalchemy.ext.asyncio import (
