@@ -14,9 +14,9 @@ from vinayak.api.routes.strategies import router as strategies_router
 from vinayak.core.config import SettingsValidationError
 from vinayak.core.config import should_auto_initialize_database
 from vinayak.core.config import validate_settings
-from vinayak.db.session import initialize_database
+from vinayak.db.engine import initialize_database
 from vinayak.web.app.main import router as web_router
-from vinayak.db.session import initialize_database
+from vinayak.db.engine import initialize_database
 
 app = FastAPI(title='Vinayak Trading Platform', version='0.2.0')
 app.add_middleware(RequestContextMiddleware)
