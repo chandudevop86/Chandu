@@ -19,3 +19,6 @@ alembic
 yfinance
 boto3
 PyJWT
+asyncpg
+aiosqlite
+requests
