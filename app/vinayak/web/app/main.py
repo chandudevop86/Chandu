@@ -470,12 +470,12 @@ def admin_create_user(
 @router.post('/admin/login', response_model=None)
 def admin_login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
     backend = WebAuthBackend(db)
-    try:
-        user = backend.login_admin(username, password)
-    except RuntimeError:
-        return _render_login(_auth_config_error_message(admin_only=True), form_action='/admin/login')
+
+    user = backend.login_admin(username, password)
+
     if user is None:
         return _render_login('Invalid admin username or password.', form_action='/admin/login')
+
     return backend.build_login_response(user, redirect_to='/admin/dashboard')
 
 
