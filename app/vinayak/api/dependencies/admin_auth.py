@@ -1,39 +1,20 @@
 from __future__ import annotations
 
-import jwt
-from datetime import datetime, timedelta
 from fastapi import HTTPException, Request
+from sqlalchemy.orm import Session
 
-from vinayak.auth.service import ADMIN_ROLE, AuthenticatedUser,UserAuthService
-from vinayak.core.config import get_settings
 from vinayak.auth.constants import COOKIE_NAME, LEGACY_COOKIE_NAME
-
-
+from vinayak.auth.service import ADMIN_ROLE, AuthenticatedUser, UserAuthService
+from vinayak.core.config import get_settings
+from vinayak.db.session import build_session_factory
 
 # =========================
 # CONFIG
 # =========================
 
 settings = get_settings()
-
-JWT_SECRET = settings.auth.admin_secret
-JWT_ALGO = "HS256"
 COOKIE_NAME = settings.auth.session_cookie_name or "vinayak_token"
 TOKEN_EXP_HOURS = 8
-
-
-# =========================
-# TOKEN CREATION
-# =========================
-
-def create_session_token(user: AuthenticatedUser) -> str:
-    payload = {
-        "user_id": user.id,
-        "username": user.username,
-        "role": str(user.role).upper(),
-        "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXP_HOURS),
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
 
 # =========================
@@ -46,20 +27,15 @@ def get_current_user(request: Request) -> AuthenticatedUser | None:
     if not token:
         return None
 
+    session_factory = build_session_factory()
+    session: Session = session_factory()
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
-
-        return AuthenticatedUser(
-            id=payload.get("user_id"),
-            username=payload.get("username"),
-            role=payload.get("role"),
-            is_active=True,
-        )
-
-    except jwt.ExpiredSignatureError:
+        auth = UserAuthService(session)
+        return auth.get_authenticated_user(token)
+    except Exception:
         return None
-    except jwt.InvalidTokenError:
-        return None
+    finally:
+        session.close()
 
 
 # =========================

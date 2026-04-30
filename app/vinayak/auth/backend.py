@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from vinayak.auth.constants import COOKIE_NAME
+from vinayak.auth.constants import COOKIE_NAME, LEGACY_COOKIE_NAME
 from vinayak.auth.service import ADMIN_ROLE, AuthenticatedUser, UserAuthService
 
 
@@ -37,10 +37,14 @@ class WebAuthBackend:
         )
         return response
 
+    def logout_user(self, token: str | None) -> None:
+        self.auth.revoke_session_token(token)
+
     @staticmethod
     def build_logout_response(*, redirect_to: str) -> RedirectResponse:
         response = RedirectResponse(url=redirect_to, status_code=303)
         response.delete_cookie(COOKIE_NAME)
+        response.delete_cookie(LEGACY_COOKIE_NAME)
         return response
 
 

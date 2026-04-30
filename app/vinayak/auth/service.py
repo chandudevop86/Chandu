@@ -4,30 +4,22 @@ import base64
 import hashlib
 import hmac
 import os
+import secrets
+from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from vinayak.db.models.user import UserRecord
+from vinayak.db.repositories.user_session_repository import UserSessionRepository
 from vinayak.db.repositories.user_repository import UserRepository
 
 
 ADMIN_ROLE = 'ADMIN'
 USER_ROLE = 'USER'
 PASSWORD_ITERATIONS = 120000
-
-# 🔐 REQUIRED SECRET (NO DEFAULT)
-APP_SECRET = os.getenv("APP_SECRET")
-
-if not APP_SECRET or APP_SECRET.lower() in {
-    "change-me",
-    "replace-me",
-    "secret",
-    "default",
-    "super-secret-key-change-this",
-}:
-    raise RuntimeError("APP_SECRET must be securely configured")
+SESSION_TTL_HOURS = 8
 
 
 @dataclass(slots=True)
@@ -47,6 +39,7 @@ class UserAuthService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.users = UserRepository(session)
+        self.sessions = UserSessionRepository(session)
 
     # ---------------- PASSWORD ---------------- #
 
@@ -107,42 +100,43 @@ class UserAuthService:
 
     # ---------------- SESSION ---------------- #
 
+    @staticmethod
+    def _hash_session_token(token: str) -> str:
+        return hashlib.sha256(str(token or '').encode()).hexdigest()
+
     def create_session_token(self, user: AuthenticatedUser) -> str:
         record = self.users.get_by_id(user.id)
 
         if not record or not record.is_active:
             raise ValueError("Invalid user")
 
-        return user.to_cookie_token(
-            APP_SECRET,
-            session_salt=record.password_hash
+        token = secrets.token_urlsafe(32)
+        self.sessions.create_session(
+            user_id=record.id,
+            token_hash=self._hash_session_token(token),
+            expires_at=datetime.now(UTC) + timedelta(hours=SESSION_TTL_HOURS),
         )
+        self.session.commit()
+        return token
 
     def get_authenticated_user(self, token: str | None) -> AuthenticatedUser | None:
-        if not token or ':' not in token:
+        if not token:
             return None
 
-        user_id_raw, _ = token.split(':', 1)
-
-        try:
-            user_id = int(user_id_raw)
-        except ValueError:
+        session_record = self.sessions.get_by_token_hash(self._hash_session_token(token))
+        if session_record is None or session_record.revoked_at is not None:
             return None
 
-        record = self.users.get_by_id(user_id)
+        now = datetime.now(UTC)
+        if session_record.expires_at <= now:
+            return None
 
+        record = self.users.get_by_id(session_record.user_id)
         if not record or not record.is_active:
             return None
 
-        expected = AuthenticatedUser(
-            id=record.id,
-            username=record.username,
-            role=record.role,
-            is_active=record.is_active
-        ).to_cookie_token(APP_SECRET, session_salt=record.password_hash)
-
-        if not hmac.compare_digest(token, expected):
-            return None
+        self.sessions.touch(session_record)
+        self.session.commit()
 
         return AuthenticatedUser(
             id=record.id,
@@ -150,6 +144,15 @@ class UserAuthService:
             role=record.role,
             is_active=record.is_active
         )
+
+    def revoke_session_token(self, token: str | None) -> None:
+        if not token:
+            return
+        session_record = self.sessions.get_by_token_hash(self._hash_session_token(token))
+        if session_record is None or session_record.revoked_at is not None:
+            return
+        self.sessions.revoke(session_record)
+        self.session.commit()
 
     # ---------------- USER MGMT ---------------- #
 

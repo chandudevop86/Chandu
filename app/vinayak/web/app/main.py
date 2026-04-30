@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from vinayak.api.dependencies.admin_auth import get_current_user, require_admin_session
 from vinayak.api.dependencies.db import get_db
+from vinayak.auth.constants import COOKIE_NAME
 from vinayak.auth.backend import WebAuthBackend
 from vinayak.auth.service import ADMIN_ROLE, UserAuthService
 from vinayak.db.repositories.deferred_execution_job_repository import DeferredExecutionJobRepository
@@ -50,12 +51,8 @@ def _render_login(error_message: str | None = None, *, form_action: str = '/logi
 
 
 def _auth_config_error_message(*, admin_only: bool) -> str:
-    prefix = "Admin authentication" if admin_only else "Authentication"
-    return (
-        f"{prefix} is not configured. "
-        "Set VINAYAK_ADMIN_USERNAME, VINAYAK_ADMIN_PASSWORD, VINAYAK_ADMIN_SECRET "
-        "and restart the app."
-    )
+    prefix = "Admin account" if admin_only else "User account"
+    return f"{prefix} is not available. Create the account in the database and try again."
 
 
 def _redirect_for_role(role: str) -> str:
@@ -119,10 +116,7 @@ def login_page(request: Request):
 @router.post('/login')
 def login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
     backend = WebAuthBackend(db)
-    try:
-        user = backend.login_user(username, password)
-    except RuntimeError:
-        return _render_login(_auth_config_error_message(admin_only=False))
+    user = backend.login_user(username, password)
 
     if not user:
         return _render_login("Invalid username or password")
@@ -131,8 +125,10 @@ def login(username: str = Form(...), password: str = Form(...), db: Session = De
 
 
 @router.post('/logout')
-def logout():
-    return WebAuthBackend.build_logout_response(redirect_to='/login')
+def logout(request: Request, db: Session = Depends(get_db)):
+    backend = WebAuthBackend(db)
+    backend.logout_user(request.cookies.get(COOKIE_NAME))
+    return backend.build_logout_response(redirect_to='/login')
 
 
 # ---------------------------
@@ -179,18 +175,15 @@ def admin_login_page():
 def admin_login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
     backend = WebAuthBackend(db)
 
-    # ✅ use DB login instead of ENV
-    user = backend.login_user(username, password)
+    user = backend.login_admin(username, password)
 
     if user is None:
         return _render_login('Invalid username or password.', form_action='/admin/login')
 
-    # 🔐 allow only ADMIN role
-    if str(user.role).upper() != ADMIN_ROLE:
-        return _render_login('Access denied. Admin only.', form_action='/admin/login')
-
     return backend.build_login_response(user, redirect_to='/admin/dashboard')
 
 @router.post('/admin/logout')
-def admin_logout():
+def admin_logout(request: Request, db: Session = Depends(get_db)):
+    backend = WebAuthBackend(db)
+    backend.logout_user(request.cookies.get(COOKIE_NAME))
     return WebAuthBackend.build_logout_response(redirect_to="/admin")
