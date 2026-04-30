@@ -12,7 +12,7 @@ from vinayak.auth.service import UserAuthService
 from vinayak.cache.redis_client import RedisCache
 from vinayak.catalog.service import ProductCatalogService
 from vinayak.core.config import get_settings
-from vinayak.db.session import build_session_factory, get_database_provider, get_database_url
+from vinayak.db.engine import build_session_factory, get_database_provider, get_database_url
 from vinayak.execution.broker.dhan_client import DhanClient
 from vinayak.messaging.bus import build_message_bus
 
