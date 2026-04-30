@@ -161,3 +161,9 @@ def validate_settings(*, startup: bool = False) -> AppSettings:
         raise SettingsValidationError(" ".join(errors))
 
     return settings
+def should_auto_initialize_database() -> bool:
+    settings = get_settings()
+
+    # Safe default behavior:
+    # auto init only in dev/test, NOT prod
+    return settings.runtime.is_development_like
