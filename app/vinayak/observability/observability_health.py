@@ -112,7 +112,8 @@ def _load_latest_analysis() -> dict[str, Any]:
 # ✅ FIXED (async)
 async def _load_latest_canonical_state() -> tuple[dict[str, Any], dict[str, Any]]:
     try:
-        SessionLocal = get_session_factory()
+       SessionLocal = build_session_factory()
+       async with SessionLocal() as session:
     except Exception:
         return {}, {}
 
