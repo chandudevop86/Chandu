@@ -8,7 +8,7 @@ from vinayak.api.schemas.strategy import LiveAnalysisRequest
 from vinayak.api.services.trading_workspace import run_live_trading_analysis
 from vinayak.db.repositories.deferred_execution_job_repository import DeferredExecutionJobRepository
 from vinayak.db.repositories.live_analysis_job_repository import LiveAnalysisJobRepository
-from vinayak.db.session import build_session_factory
+from vinayak.db.engine import build_session_factory
 from vinayak.messaging.events import EVENT_DEFERRED_EXECUTION_REQUESTED
 from vinayak.messaging.outbox import OutboxService
 from vinayak.observability.observability_logger import log_exception
