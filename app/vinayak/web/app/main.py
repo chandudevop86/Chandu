@@ -178,13 +178,18 @@ def admin_login_page():
 @router.post('/admin/login')
 def admin_login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
     backend = WebAuthBackend(db)
-    user = backend.login_admin(username, password)
 
-    if not user:
-        return _render_login("Invalid admin credentials", form_action="/admin/login")
+    # ✅ use DB login instead of ENV
+    user = backend.login_user(username, password)
 
-    return backend.build_login_response(user, redirect_to="/admin/dashboard")
+    if user is None:
+        return _render_login('Invalid username or password.', form_action='/admin/login')
 
+    # 🔐 allow only ADMIN role
+    if str(user.role).upper() != ADMIN_ROLE:
+        return _render_login('Access denied. Admin only.', form_action='/admin/login')
+
+    return backend.build_login_response(user, redirect_to='/admin/dashboard')
 
 @router.post('/admin/logout')
 def admin_logout():
