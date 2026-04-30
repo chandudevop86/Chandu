@@ -17,8 +17,17 @@ ADMIN_ROLE = 'ADMIN'
 USER_ROLE = 'USER'
 PASSWORD_ITERATIONS = 120000
 
-# 🔐 CHANGE THIS IN PRODUCTION (or move to ENV later)
-APP_SECRET = os.getenv("APP_SECRET", "super-secret-key-change-this")
+# 🔐 REQUIRED SECRET (NO DEFAULT)
+APP_SECRET = os.getenv("APP_SECRET")
+
+if not APP_SECRET or APP_SECRET.lower() in {
+    "change-me",
+    "replace-me",
+    "secret",
+    "default",
+    "super-secret-key-change-this",
+}:
+    raise RuntimeError("APP_SECRET must be securely configured")
 
 
 @dataclass(slots=True)
@@ -29,8 +38,8 @@ class AuthenticatedUser:
     is_active: bool
 
     def to_cookie_token(self, secret: str, session_salt: str = '') -> str:
-        payload = f'{self.id}:{self.username}:{self.role}:{session_salt}'.encode('utf-8')
-        signature = hmac.new(secret.encode('utf-8'), payload, hashlib.sha256).hexdigest()
+        payload = f'{self.id}:{self.username}:{self.role}:{session_salt}'.encode()
+        signature = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
         return f'{self.id}:{signature}'
 
 
@@ -43,11 +52,10 @@ class UserAuthService:
 
     @staticmethod
     def hash_password(password: str) -> str:
-        raw_password = str(password or '')
         salt = os.urandom(16)
         derived = hashlib.pbkdf2_hmac(
             'sha256',
-            raw_password.encode('utf-8'),
+            password.encode(),
             salt,
             PASSWORD_ITERATIONS
         )
@@ -60,22 +68,22 @@ class UserAuthService:
     @staticmethod
     def verify_password(password: str, password_hash: str) -> bool:
         try:
-            algorithm, iterations_raw, salt_raw, digest_raw = str(password_hash or '').split('$', 3)
+            algorithm, iterations, salt, digest = password_hash.split('$', 3)
+
             if algorithm != 'pbkdf2_sha256':
                 return False
 
-            iterations = int(iterations_raw)
-            salt = base64.urlsafe_b64decode(salt_raw.encode())
-            expected = base64.urlsafe_b64decode(digest_raw.encode())
-
             actual = hashlib.pbkdf2_hmac(
                 'sha256',
-                str(password or '').encode('utf-8'),
-                salt,
-                iterations
+                password.encode(),
+                base64.urlsafe_b64decode(salt),
+                int(iterations)
             )
 
-            return hmac.compare_digest(actual, expected)
+            return hmac.compare_digest(
+                actual,
+                base64.urlsafe_b64decode(digest)
+            )
         except Exception:
             return False
 
@@ -84,7 +92,7 @@ class UserAuthService:
     def authenticate(self, username: str, password: str) -> AuthenticatedUser | None:
         record = self.users.get_by_username(username)
 
-        if record is None or not bool(record.is_active):
+        if not record or not record.is_active:
             return None
 
         if not self.verify_password(password, record.password_hash):
@@ -102,26 +110,19 @@ class UserAuthService:
     def create_session_token(self, user: AuthenticatedUser) -> str:
         record = self.users.get_by_id(user.id)
 
-        if record is None or not bool(record.is_active):
-            raise ValueError('Active user record required')
+        if not record or not record.is_active:
+            raise ValueError("Invalid user")
 
-        return AuthenticatedUser(
-            id=record.id,
-            username=record.username,
-            role=record.role,
-            is_active=record.is_active
-        ).to_cookie_token(
+        return user.to_cookie_token(
             APP_SECRET,
-            session_salt=record.password_hash,
+            session_salt=record.password_hash
         )
 
     def get_authenticated_user(self, token: str | None) -> AuthenticatedUser | None:
-        raw = str(token or '').strip()
-
-        if not raw or ':' not in raw:
+        if not token or ':' not in token:
             return None
 
-        user_id_raw, signature = raw.split(':', 1)
+        user_id_raw, _ = token.split(':', 1)
 
         try:
             user_id = int(user_id_raw)
@@ -130,7 +131,7 @@ class UserAuthService:
 
         record = self.users.get_by_id(user_id)
 
-        if record is None or not bool(record.is_active):
+        if not record or not record.is_active:
             return None
 
         expected = AuthenticatedUser(
@@ -138,12 +139,9 @@ class UserAuthService:
             username=record.username,
             role=record.role,
             is_active=record.is_active
-        ).to_cookie_token(
-            APP_SECRET,
-            session_salt=record.password_hash,
-        )
+        ).to_cookie_token(APP_SECRET, session_salt=record.password_hash)
 
-        if not hmac.compare_digest(raw, expected):
+        if not hmac.compare_digest(token, expected):
             return None
 
         return AuthenticatedUser(
@@ -155,50 +153,29 @@ class UserAuthService:
 
     # ---------------- USER MGMT ---------------- #
 
-    def create_user(
-        self,
-        *,
-        username: str,
-        password: str,
-        role: str = USER_ROLE,
-        is_active: bool = True
-    ) -> UserRecord:
+    def create_user(self, *, username: str, password: str, role: str = USER_ROLE, is_active: bool = True) -> UserRecord:
+        username = username.strip()
+        role = role.upper()
 
-        cleaned_username = str(username or '').strip()
-        cleaned_role = str(role or USER_ROLE).strip().upper()
+        if not username:
+            raise ValueError("Username required")
 
-        if not cleaned_username:
-            raise ValueError('Username is required.')
+        if len(password) < 6:
+            raise ValueError("Password too short")
 
-        if len(str(password or '')) < 6:
-            raise ValueError('Password must be at least 6 characters.')
+        if role not in {ADMIN_ROLE, USER_ROLE}:
+            raise ValueError("Invalid role")
 
-        if cleaned_role not in {ADMIN_ROLE, USER_ROLE}:
-            raise ValueError('Role must be ADMIN or USER.')
-
-        if self.users.get_by_username(cleaned_username) is not None:
-            raise ValueError('Username already exists.')
+        if self.users.get_by_username(username):
+            raise ValueError("User exists")
 
         record = self.users.create_user(
-            username=cleaned_username,
+            username=username,
             password_hash=self.hash_password(password),
-            role=cleaned_role,
-            is_active=is_active,
+            role=role,
+            is_active=is_active
         )
 
         self.session.commit()
         self.session.refresh(record)
-
         return record
-
-    def list_users(self) -> list[dict[str, Any]]:
-        return [
-            {
-                'id': item.id,
-                'username': item.username,
-                'role': item.role,
-                'is_active': bool(item.is_active),
-                'created_at': item.created_at.isoformat() if item.created_at else '',
-            }
-            for item in self.users.list_users()
-        ]
