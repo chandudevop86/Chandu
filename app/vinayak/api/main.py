@@ -16,18 +16,28 @@ from vinayak.core.config import should_auto_initialize_database
 from vinayak.core.config import validate_settings
 from vinayak.db.session import initialize_database
 from vinayak.web.app.main import router as web_router
-
+from vinayak.db.session import initialize_database
 
 app = FastAPI(title='Vinayak Trading Platform', version='0.2.0')
 app.add_middleware(RequestContextMiddleware)
 
+import logging
 
-@app.on_event('startup')
-def startup_initialize_database() -> None:
-    validate_settings(startup=True)
-    if should_auto_initialize_database():
-        initialize_database()
+logger = logging.getLogger(__name__)
 
+@app.on_event("startup")
+def startup():
+    try:
+        validate_settings(startup=True)
+
+        if should_auto_initialize_database():
+            initialize_database()
+            print("✅ Database initialized")
+        else:
+            print("ℹ️ Skipping DB initialization")
+
+    except Exception as e:
+        print(f"❌ Startup failed: {e}")
 
 @app.exception_handler(ValueError)
 def handle_value_error(_, exc):
