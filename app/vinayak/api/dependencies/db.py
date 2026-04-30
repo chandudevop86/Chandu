@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from vinayak.db.session import build_session_factory
+from vinayak.db.engine import build_session_factory
 
 
-def get_db() -> Session:
-    session_factory = build_session_factory()
-    session = session_factory()
-    try:
+async def get_db() -> AsyncSession:
+    SessionLocal = build_session_factory()
+
+    async with SessionLocal() as session:
         yield session
-    finally:
-        session.close()
