@@ -80,4 +80,4 @@ def initialize_database(database_url: str | None = None) -> None:
 
     Base.metadata.create_all(bind=get_engine(database_url))
 
-
+SessionLocal = build_session_factory()
