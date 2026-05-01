@@ -98,16 +98,23 @@ class UserAuthService:
     #         is_active=record.is_active
     #     )
 
-    class UserRepository:
-    def __init__(self, session):
-        self.session = session
+    
+class UserAuthService:
+    def __init__(self, repo):
+        self.repo = repo
 
-    def get_by_username(self, username: str):
-        return (
-            self.session.query(UserRecord)
-            .filter(UserRecord.username == username.strip())
-            .one_or_none()
-        )
+    def authenticate(self, username: str, password: str):
+        user = self.repo.get_by_username(username)
+
+        if not user:
+            return None
+
+        if user.password != password:
+            return None
+
+        return user
+    
+
 # from sqlalchemy import select
 # class UserAuthService:
 #     def __init__(self, session):

@@ -8,16 +8,29 @@ from vinayak.db.models.user import UserRecord
 class UserAuthService:
     def __init__(self, users: UserRepository):
         self.users = users
+
+
 class UserRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session):
         self.session = session
 
-    async def get_by_username(self, username: str) -> UserRecord | None:
-        stmt = select(UserRecord).where(
-            UserRecord.username == username.strip()
+    def get_by_username(self, username: str):
+        return (
+            self.session.query(UserRecord)
+            .filter(UserRecord.username == username.strip())
+            .one_or_none()
         )
-        result = await self.session.execute(stmt)
-        return result.scalars().first()
+
+# class UserRepository:
+#     def __init__(self, session: AsyncSession) -> None:
+#         self.session = session
+
+#     async def get_by_username(self, username: str) -> UserRecord | None:
+#         stmt = select(UserRecord).where(
+#             UserRecord.username == username.strip()
+#         )
+#         result = await self.session.execute(stmt)
+#         return result.scalars().first()
 
     async def get_by_id(self, user_id: int) -> UserRecord | None:
         result = await self.session.execute(
