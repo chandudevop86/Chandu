@@ -83,8 +83,7 @@ class UserAuthService:
     # ---------------- AUTH ---------------- #
 
     def authenticate(self, username: str, password: str) -> AuthenticatedUser | None:
-        record = self.users.get_by_username(username)
-
+        record = await self.users.get_by_username(username)
         if not record or not record.is_active:
             return None
 

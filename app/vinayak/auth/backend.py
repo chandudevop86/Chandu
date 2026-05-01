@@ -46,6 +46,6 @@ class WebAuthBackend:
         response.delete_cookie(COOKIE_NAME)
         response.delete_cookie(LEGACY_COOKIE_NAME)
         return response
-
+user = await self.auth.authenticate(username, password)
 
 __all__ = ['WebAuthBackend']
