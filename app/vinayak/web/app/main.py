@@ -138,7 +138,7 @@ def admin_login_page():
 
 
 @router.post("/admin/login")
-def admin_login(
+async def admin_login(
     username: str = Form(...),
     password: str = Form(...),
     db: Session = Depends(get_db),
