@@ -172,10 +172,10 @@ def admin_login_page():
 
 
 @router.post('/admin/login')
-def admin_login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+async def admin_login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
     backend = WebAuthBackend(db)
 
-    user = backend.login_admin(username, password)
+    user = await backend.login_admin(username, password)
 
     if user is None:
         return _render_login('Invalid username or password.', form_action='/admin/login')
