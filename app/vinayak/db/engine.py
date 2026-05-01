@@ -1,43 +1,55 @@
-from vinayak.db.db_async import (
-    get_engine,
-    build_session_factory,
-)
+from __future__ import annotations
 
 import os
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    async_sessionmaker,
+    AsyncSession,
+    AsyncEngine,
+)
+
+from vinayak.core.config import get_settings
+
+# =========================
+# GLOBALS
+# =========================
+
+_engine: AsyncEngine | None = None
+_SessionLocal: async_sessionmaker[AsyncSession] | None = None
+
+
+# =========================
+# DATABASE CONFIG
+# =========================
 
 def get_database_url() -> str:
-    return os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./vinayak.db")
+    settings = get_settings()
+    return settings.sql.url
 
 
 def get_database_provider() -> str:
-    url = get_database_url()
+    url = get_database_url().lower()
 
     if url.startswith("sqlite"):
         return "sqlite"
-    elif url.startswith("postgresql"):
+    if url.startswith("postgresql"):
         return "postgresql"
-    elif url.startswith("mysql"):
+    if url.startswith("mysql"):
         return "mysql"
     return "unknown"
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-
-_engine = None
-_SessionLocal = None
 
 
-def build_session_factory():
-    """
-    Central async session factory
-    """
-    global _engine, _SessionLocal
+# =========================
+# ENGINE
+# =========================
 
-    if _SessionLocal:
-        return _SessionLocal
+def get_engine() -> AsyncEngine:
+    global _engine
 
-    from vinayak.core.config import get_settings
+    if _engine:
+        return _engine
 
-    settings = get_settings()
-    database_url = settings.sql.url
+    database_url = get_database_url()
 
     _engine = create_async_engine(
         database_url,
@@ -45,24 +57,60 @@ def build_session_factory():
         pool_pre_ping=True,
     )
 
+    return _engine
+
+
+# =========================
+# SESSION FACTORY
+# =========================
+
+def build_session_factory() -> async_sessionmaker[AsyncSession]:
+    global _SessionLocal
+
+    if _SessionLocal:
+        return _SessionLocal
+
+    engine = get_engine()
+
     _SessionLocal = async_sessionmaker(
-        bind=_engine,
+        bind=engine,
         expire_on_commit=False,
+        class_=AsyncSession,
     )
 
     return _SessionLocal
 
 
-async def initialize_database():
-    """
-    Optional startup initializer (safe for dev/prod)
-    """
-    SessionLocal = build_session_factory()
+# =========================
+# DB INITIALIZER
+# =========================
 
-    async with SessionLocal() as conn:
-        # If you use SQLAlchemy models:
-        # from vinayak.db.base import Base
-        # await conn.run_sync(Base.metadata.create_all)
+async def initialize_database() -> bool:
+    """
+    Initialize database (create tables if needed)
+    """
+    engine = get_engine()
+
+    try:
+        async with engine.begin() as conn:
+            # Uncomment if using models
+            # from vinayak.db.base import Base
+            # await conn.run_sync(Base.metadata.create_all)
+            pass
 
         return True
-__all__ = ["get_engine", "build_session_factory"]
+    except Exception:
+        return False
+
+
+# =========================
+# EXPORTS
+# =========================
+
+__all__ = [
+    "get_engine",
+    "build_session_factory",
+    "initialize_database",
+    "get_database_url",
+    "get_database_provider",
+]
