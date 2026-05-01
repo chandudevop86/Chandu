@@ -95,10 +95,11 @@ class UserAuthService:
             return None
 
     # your password logic here
-         if not verify_password(password, user.password_hash):
-            return None 
+        if not verify_password (password, user.password_hash):
+
+               return None 
          
-         return user
+        return user
 
     # ---------------- SESSION ---------------- #
 
