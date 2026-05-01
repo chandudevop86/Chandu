@@ -85,8 +85,7 @@ def _bool_env(name: str, default: bool) -> bool:
 
 def _default_sqlite_url() -> str:
     db_path = Path(__file__).resolve().parents[1] / "data" / "vinayak.db"
-    return f"sqlite:///{db_path.as_posix()}"
-
+    return f"sqlite+aiosqlite:///{db_path.as_posix()}"
 
 def _detect_sql_provider(url: str) -> str:
     lower = (url or "").lower()
