@@ -5,31 +5,17 @@ from sqlalchemy import select
 
 from vinayak.db.models.user import UserRecord
 
-class UserAuthService:
-    def __init__(self, users: UserRepository):
-        self.users = users
-
 
 class UserRepository:
-    def __init__(self, session):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def get_by_username(self, username: str):
-    result = await self.session.execute(
-        select(UserRecord).where(UserRecord.username == username)
-    )
-    return result.scalar_one_or_none()
-
-# class UserRepository:
-#     def __init__(self, session: AsyncSession) -> None:
-#         self.session = session
-
-#     async def get_by_username(self, username: str) -> UserRecord | None:
-#         stmt = select(UserRecord).where(
-#             UserRecord.username == username.strip()
-#         )
-#         result = await self.session.execute(stmt)
-#         return result.scalars().first()
+    async def get_by_username(self, username: str) -> UserRecord | None:
+        stmt = select(UserRecord).where(
+            UserRecord.username == username.strip()
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_by_id(self, user_id: int) -> UserRecord | None:
         result = await self.session.execute(
