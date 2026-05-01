@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from vinayak.db.models.user import UserRecord
 from vinayak.db.repositories.user_session_repository import UserSessionRepository
 from vinayak.db.repositories.user_repository import UserRepository
- from vinayak.core.security import verify_password
+from vinayak.core.security import verify_password
 
 
 ADMIN_ROLE = 'ADMIN'
