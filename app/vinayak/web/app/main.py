@@ -18,6 +18,9 @@ from vinayak.web.app.role_pages import (
 from vinayak.web.services.role_view_service import RoleViewService
 
 router = APIRouter()
+@router.get("/admin")
+def admin_root():
+    return RedirectResponse(url="/admin/login")
 
 # ---------------------------
 # HELPERS
