@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from vinayak.db.models.user import UserRecord
 from vinayak.db.repositories.user_session_repository import UserSessionRepository
 from vinayak.db.repositories.user_repository import UserRepository
+ 
 
 
 ADMIN_ROLE = 'ADMIN'
@@ -96,23 +97,34 @@ class UserAuthService:
     #         role=record.role,
     #         is_active=record.is_active
     #     )
-from sqlalchemy import select
-class UserAuthService:
+
+    class UserRepository:
     def __init__(self, session):
         self.session = session
-        self.users = UserRepository(session)
-class UserAuthService:
 
-    async def authenticate(self, username: str, password: str):
-        record = await self.users.get_by_username(username)
+    def get_by_username(self, username: str):
+        return (
+            self.session.query(UserRecord)
+            .filter(UserRecord.username == username.strip())
+            .one_or_none()
+        )
+# from sqlalchemy import select
+# class UserAuthService:
+#     def __init__(self, session):
+#         self.session = session
+#         self.users = UserRepository(session)
+# class UserAuthService:
 
-        if not record:
-            return None
+#     async def authenticate(self, username: str, password: str):
+#         record = await self.users.get_by_username(username)
 
-        if not self._verify_password(password, record.password_hash):
-            return None
+#         if not record:
+#             return None
 
-        return record
+#         if not self._verify_password(password, record.password_hash):
+#             return None
+
+#         return record
 
 
 
