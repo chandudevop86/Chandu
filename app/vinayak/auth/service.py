@@ -99,6 +99,16 @@ class UserAuthService:
             return None
 
         return user
+    async def authenticate(self, username: str, password: str):
+    user = await self.repo.get_by_username(username)
+
+    print("USER FROM DB:", user)   # ✅ correct place
+
+    if not user:
+        return None
+
+    # your password logic here
+    return user
 
     # ---------------- SESSION ---------------- #
 
