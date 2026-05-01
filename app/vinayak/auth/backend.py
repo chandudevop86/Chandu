@@ -16,9 +16,9 @@ class WebAuthBackend:
     def login_user(self, username: str, password: str) -> AuthenticatedUser | None:
         return self.auth.authenticate(username, password)
 
-    def login_admin(self, username: str, password: str) -> AuthenticatedUser | None:
+    async def login_admin(self, username: str, password: str) -> AuthenticatedUser | None:
         # ✅ FIX: removed async + await
-        user = self.auth.authenticate(username, password)
+        user = await self.auth.authenticate(username, password)
 
         if user is None:
             return None

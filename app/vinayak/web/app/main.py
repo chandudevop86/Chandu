@@ -146,7 +146,7 @@ def admin_login(
     backend = WebAuthBackend(db)
 
     # ✅ FIX: NO await (sync system)
-    user = backend.login_admin(username, password)
+    user = await backend.login_admin(username, password)
 
     if user is None:
         return _render_login(
