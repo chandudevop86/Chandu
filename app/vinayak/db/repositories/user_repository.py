@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from vinayak.db.models.user import UserRecord
-from vinayak.db.repositories.user_repository import UserRepository
+
 class UserAuthService:
     def __init__(self, users: UserRepository):
         self.users = users
