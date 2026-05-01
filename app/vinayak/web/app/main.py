@@ -158,8 +158,6 @@ def admin_login(
         user,
         redirect_to="/admin/dashboard",
     )
-
-
 # ---------------------------
 # ADMIN LOGOUT
 # ---------------------------

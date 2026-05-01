@@ -5,19 +5,20 @@ from sqlalchemy.orm import Session
 
 from vinayak.auth.constants import COOKIE_NAME, LEGACY_COOKIE_NAME
 from vinayak.auth.service import ADMIN_ROLE, AuthenticatedUser, UserAuthService
+from vinayak.db.repositories.user_repository import UserRepository   # ✅ FIX
 
 
 class WebAuthBackend:
     def __init__(self, session: Session) -> None:
-        repo = UserRepository(session)          # ✅ DB layer
+        repo = UserRepository(session)
         self.auth = UserAuthService(repo)
 
     def login_user(self, username: str, password: str) -> AuthenticatedUser | None:
         return self.auth.authenticate(username, password)
 
-    async def login_admin(self, username: str, password: str) -> AuthenticatedUser | None:
-        # ✅ DB-based auth only (no ENV dependency)
-        user = await self.auth.authenticate(username, password)
+    def login_admin(self, username: str, password: str) -> AuthenticatedUser | None:
+        # ✅ FIX: removed async + await
+        user = self.auth.authenticate(username, password)
 
         if user is None:
             return None
@@ -34,7 +35,7 @@ class WebAuthBackend:
             value=self.auth.create_session_token(user),
             httponly=True,
             samesite='lax',
-            secure=False,  # OK for HTTP (change to True when using HTTPS)
+            secure=False,  # change to True in HTTPS
         )
         return response
 
@@ -47,6 +48,6 @@ class WebAuthBackend:
         response.delete_cookie(COOKIE_NAME)
         response.delete_cookie(LEGACY_COOKIE_NAME)
         return response
-#user = await self.auth.authenticate(username, password)
+
 
 __all__ = ['WebAuthBackend']

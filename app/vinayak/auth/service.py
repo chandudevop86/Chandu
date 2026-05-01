@@ -219,3 +219,30 @@ class UserAuthService:
         self.session.commit()
         self.session.refresh(record)
         return record
+
+    def upsert_admin_user(self, *, username: str, password: str, force_update: bool = False) -> UserRecord:
+        normalized_username = str(username or '').strip()
+        if not normalized_username:
+            raise ValueError('Username required')
+        if len(password) < 6:
+            raise ValueError('Password too short')
+
+        existing = self.users.get_by_username(normalized_username)
+        if existing is None:
+            return self.create_user(
+                username=normalized_username,
+                password=password,
+                role=ADMIN_ROLE,
+                is_active=True,
+            )
+
+        if not force_update:
+            raise ValueError('User already exists. Re-run with --force-update to reset password and promote to admin.')
+
+        existing.password_hash = self.hash_password(password)
+        existing.role = ADMIN_ROLE
+        existing.is_active = True
+        self.session.add(existing)
+        self.session.commit()
+        self.session.refresh(existing)
+        return existing
