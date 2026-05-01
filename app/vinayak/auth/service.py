@@ -82,20 +82,36 @@ class UserAuthService:
 
     # ---------------- AUTH ---------------- #
 
-    def authenticate(self, username: str, password: str) -> AuthenticatedUser | None:
+    # def authenticate(self, username: str, password: str) -> AuthenticatedUser | None:
+    #     record = await self.users.get_by_username(username)
+    #     if not record or not record.is_active:
+    #         return None
+
+    #     if not self.verify_password(password, record.password_hash):
+    #         return None
+
+    #     return AuthenticatedUser(
+    #         id=record.id,
+    #         username=record.username,
+    #         role=record.role,
+    #         is_active=record.is_active
+    #     )
+from sqlalchemy import select
+
+class UserAuthService:
+
+    async def authenticate(self, username: str, password: str):
         record = await self.users.get_by_username(username)
-        if not record or not record.is_active:
+
+        if not record:
             return None
 
-        if not self.verify_password(password, record.password_hash):
+        if not self._verify_password(password, record.password_hash):
             return None
 
-        return AuthenticatedUser(
-            id=record.id,
-            username=record.username,
-            role=record.role,
-            is_active=record.is_active
-        )
+        return record
+
+
 
     # ---------------- SESSION ---------------- #
 
