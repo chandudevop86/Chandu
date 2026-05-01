@@ -97,7 +97,10 @@ class UserAuthService:
     #         is_active=record.is_active
     #     )
 from sqlalchemy import select
-
+class UserAuthService:
+    def __init__(self, session):
+        self.session = session
+        self.users = UserRepository(session)
 class UserAuthService:
 
     async def authenticate(self, username: str, password: str):
