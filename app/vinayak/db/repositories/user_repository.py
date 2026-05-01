@@ -14,12 +14,11 @@ class UserRepository:
     def __init__(self, session):
         self.session = session
 
-    def get_by_username(self, username: str):
-        return (
-            self.session.query(UserRecord)
-            .filter(UserRecord.username == username.strip())
-            .one_or_none()
-        )
+    async def get_by_username(self, username: str):
+    result = await self.session.execute(
+        select(UserRecord).where(UserRecord.username == username)
+    )
+    return result.scalar_one_or_none()
 
 # class UserRepository:
 #     def __init__(self, session: AsyncSession) -> None:
