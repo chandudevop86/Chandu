@@ -4,9 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from vinayak.db.models.user import UserRecord
-
-self.auth = UserAuthService(session)
-
+from vinayak.db.repositories.user_repository import UserRepository
+class UserAuthService:
+    def __init__(self, users: UserRepository):
+        self.users = users
 class UserRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -16,7 +17,7 @@ class UserRepository:
             UserRecord.username == username.strip()
         )
         result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def get_by_id(self, user_id: int) -> UserRecord | None:
         result = await self.session.execute(

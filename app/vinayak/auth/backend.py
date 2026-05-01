@@ -9,7 +9,8 @@ from vinayak.auth.service import ADMIN_ROLE, AuthenticatedUser, UserAuthService
 
 class WebAuthBackend:
     def __init__(self, session: Session) -> None:
-        self.auth = UserAuthService(session)
+        repo = UserRepository(session)          # ✅ DB layer
+        self.auth = UserAuthService(repo)
 
     def login_user(self, username: str, password: str) -> AuthenticatedUser | None:
         return self.auth.authenticate(username, password)
