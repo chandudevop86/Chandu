@@ -82,58 +82,23 @@ class UserAuthService:
             return False
 
     # ---------------- AUTH ---------------- #
-
-    # def authenticate(self, username: str, password: str) -> AuthenticatedUser | None:
-    #     record = await self.users.get_by_username(username)
-    #     if not record or not record.is_active:
-    #         return None
-
-    #     if not self.verify_password(password, record.password_hash):
-    #         return None
-
-    #     return AuthenticatedUser(
-    #         id=record.id,
-    #         username=record.username,
-    #         role=record.role,
-    #         is_active=record.is_active
-    #     )
-
     
+
 class UserAuthService:
-    def __init__(self, repo):
+    def __init__(self, repo: UserRepository):
         self.repo = repo
 
-    def authenticate(self, username: str, password: str):
-        user = self.repo.get_by_username(username)
+    async def authenticate(self, username: str, password: str):
+        user = await self.repo.get_by_username(username)
 
         if not user:
             return None
 
-        if user.password != password:
+        # TODO: verify password properly
+        if user.password_hash != password:
             return None
 
         return user
-    
-
-# from sqlalchemy import select
-# class UserAuthService:
-#     def __init__(self, session):
-#         self.session = session
-#         self.users = UserRepository(session)
-# class UserAuthService:
-
-#     async def authenticate(self, username: str, password: str):
-#         record = await self.users.get_by_username(username)
-
-#         if not record:
-#             return None
-
-#         if not self._verify_password(password, record.password_hash):
-#             return None
-
-#         return record
-
-
 
     # ---------------- SESSION ---------------- #
 
