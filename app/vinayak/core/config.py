@@ -12,7 +12,15 @@ except Exception:
 
 
 class SettingsValidationError(RuntimeError):
-    """Raised when runtime configuration is unsafe for startup."""
+    pass
+
+
+# ---------------- OBSERVABILITY (FIX) ---------------- #
+
+@dataclass(frozen=True)
+class ObservabilitySettings:
+    request_id_header: str = "X-Request-ID"
+    log_level: str = "INFO"
 
 
 # ---------------- RUNTIME ---------------- #
@@ -37,7 +45,7 @@ class RuntimeSettings:
         return self.normalized_environment in {"local", "dev", "development", "test"}
 
 
-# ---------------- AUTH (DB ONLY) ---------------- #
+# ---------------- AUTH ---------------- #
 
 @dataclass(frozen=True)
 class AuthSettings:
@@ -56,24 +64,17 @@ class SqlSettings:
     provider: str
 
 
-# ---------------- OBSERVABILITY (FIX ADDED) ---------------- #
-
-@dataclass(frozen=True)
-class ObservabilitySettings:
-    request_id_header: str
-
-
-# ---------------- APP SETTINGS ---------------- #
+# ---------------- APP SETTINGS (FIXED) ---------------- #
 
 @dataclass(frozen=True)
 class AppSettings:
     runtime: RuntimeSettings
     auth: AuthSettings
     sql: SqlSettings
-    observability: ObservabilitySettings
+    observability: ObservabilitySettings  # ✅ FIX ADDED
 
 
-# ---------------- ENV HELPERS ---------------- #
+# ---------------- HELPERS ---------------- #
 
 def _str_env(name: str, default: str = "") -> str:
     return str(os.getenv(name, default) or default).strip()
@@ -87,10 +88,10 @@ def _int_env(name: str, default: int) -> int:
 
 
 def _bool_env(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None:
+    v = os.getenv(name)
+    if v is None:
         return default
-    return str(value).strip().lower() not in {"0", "false", "no", "off"}
+    return str(v).strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _default_sqlite_url() -> str:
@@ -99,79 +100,60 @@ def _default_sqlite_url() -> str:
 
 
 def _detect_sql_provider(url: str) -> str:
-    lower = (url or "").lower()
-    if lower.startswith("postgresql"):
+    url = (url or "").lower()
+    if "postgresql" in url:
         return "postgresql"
-    if lower.startswith("mysql"):
+    if "mysql" in url:
         return "mysql"
-    if lower.startswith("sqlite"):
+    if "sqlite" in url:
         return "sqlite"
     return "unknown"
 
 
-# ---------------- SETTINGS LOADER ---------------- #
+# ---------------- SETTINGS ---------------- #
 
 @lru_cache(maxsize=1)
 def get_settings() -> AppSettings:
     if load_dotenv:
-        base_dir = Path(__file__).resolve().parents[1]
-        env_path = base_dir / ".env"
-        if env_path.exists():
-            load_dotenv(env_path)
+        base = Path(__file__).resolve().parents[1]
+        env = base / ".env"
+        if env.exists():
+            load_dotenv(env)
 
     sql_url = _str_env("VINAYAK_DATABASE_URL", _default_sqlite_url())
 
-    runtime = RuntimeSettings(
-        environment=_str_env("APP_ENV", "dev"),
-        app_name=_str_env("APP_NAME", "Vinayak Trading Platform"),
-        host=_str_env("APP_HOST", "0.0.0.0"),
-        port=_int_env("APP_PORT", 8000),
-    )
-
     return AppSettings(
-        runtime=runtime,
+        runtime=RuntimeSettings(
+            environment=_str_env("APP_ENV", "dev"),
+            app_name=_str_env("APP_NAME", "Vinayak"),
+            host=_str_env("APP_HOST", "0.0.0.0"),
+            port=_int_env("APP_PORT", 8000),
+        ),
         auth=AuthSettings(
             auto_login_enabled=_bool_env("VINAYAK_AUTO_LOGIN", False),
-            sync_admin_from_env=False,  # DB ONLY MODE
+            sync_admin_from_env=False,
             secure_cookies=_bool_env("VINAYAK_SECURE_COOKIES", True),
-            session_cookie_name=_str_env("VINAYAK_SESSION_COOKIE_NAME", "vinayak_session"),
-            legacy_session_cookie_name=_str_env(
-                "VINAYAK_LEGACY_SESSION_COOKIE_NAME",
-                "vinayak_admin_session",
-            ),
+            session_cookie_name="vinayak_session",
+            legacy_session_cookie_name="vinayak_admin_session",
         ),
         sql=SqlSettings(
             url=sql_url,
             provider=_detect_sql_provider(sql_url),
         ),
-        observability=ObservabilitySettings(
-            request_id_header=_str_env("REQUEST_ID_HEADER", "X-Request-ID")
-        ),
+        observability=ObservabilitySettings(),  # ✅ FIX ADDED
     )
 
 
-def reset_settings_cache() -> None:
+def reset_settings_cache():
     get_settings.cache_clear()
 
 
-# ---------------- VALIDATION ---------------- #
+def validate_settings():
+    s = get_settings()
+    if s.runtime.is_production and s.sql.provider == "sqlite":
+        raise SettingsValidationError("SQLite not allowed in production")
+    return s
 
-def validate_settings(*, startup: bool = False) -> AppSettings:
-    settings = get_settings()
-    errors: list[str] = []
-
-    if settings.runtime.is_production:
-        if settings.sql.provider == "sqlite":
-            errors.append("Production cannot use SQLite database.")
-
-    if startup and errors:
-        raise SettingsValidationError(" ".join(errors))
-
-    return settings
-
-
-# ---------------- DB AUTO INIT RULE ---------------- #
 
 def should_auto_initialize_database() -> bool:
-    settings = get_settings()
-    return settings.runtime.is_development_like
+    return get_settings().runtime.is_development_like
