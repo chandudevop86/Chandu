@@ -94,21 +94,11 @@ class UserAuthService:
         if not user:
             return None
 
-        # TODO: verify password properly
-        if user.password_hash != password:
-            return None
-
-        return user
-    async def authenticate(self, username: str, password: str):
-         user = await self.repo.get_by_username(username)
-
-         print("USER FROM DB:", user)   # ✅ correct place
-
-         if not user:
-             return None
-
     # your password logic here
-             return user
+         if not verify_password(password, user.password_hash):
+            return None 
+         
+         return user
 
     # ---------------- SESSION ---------------- #
 
