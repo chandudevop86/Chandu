@@ -48,7 +48,7 @@ class AuthSettings:
     legacy_session_cookie_name: str
 
 
-# ---------------- OTHER SETTINGS ---------------- #
+# ---------------- SQL ---------------- #
 
 @dataclass(frozen=True)
 class SqlSettings:
@@ -56,14 +56,24 @@ class SqlSettings:
     provider: str
 
 
+# ---------------- OBSERVABILITY (FIX ADDED) ---------------- #
+
+@dataclass(frozen=True)
+class ObservabilitySettings:
+    request_id_header: str
+
+
+# ---------------- APP SETTINGS ---------------- #
+
 @dataclass(frozen=True)
 class AppSettings:
     runtime: RuntimeSettings
     auth: AuthSettings
     sql: SqlSettings
+    observability: ObservabilitySettings
 
 
-# ---------------- ENV LOADER ---------------- #
+# ---------------- ENV HELPERS ---------------- #
 
 def _str_env(name: str, default: str = "") -> str:
     return str(os.getenv(name, default) or default).strip()
@@ -87,6 +97,7 @@ def _default_sqlite_url() -> str:
     db_path = Path(__file__).resolve().parents[1] / "data" / "vinayak.db"
     return f"sqlite+aiosqlite:///{db_path.as_posix()}"
 
+
 def _detect_sql_provider(url: str) -> str:
     lower = (url or "").lower()
     if lower.startswith("postgresql"):
@@ -98,7 +109,7 @@ def _detect_sql_provider(url: str) -> str:
     return "unknown"
 
 
-# ---------------- SETTINGS ---------------- #
+# ---------------- SETTINGS LOADER ---------------- #
 
 @lru_cache(maxsize=1)
 def get_settings() -> AppSettings:
@@ -121,7 +132,7 @@ def get_settings() -> AppSettings:
         runtime=runtime,
         auth=AuthSettings(
             auto_login_enabled=_bool_env("VINAYAK_AUTO_LOGIN", False),
-            sync_admin_from_env=False,  # ❌ DISABLED (DB ONLY)
+            sync_admin_from_env=False,  # DB ONLY MODE
             secure_cookies=_bool_env("VINAYAK_SECURE_COOKIES", True),
             session_cookie_name=_str_env("VINAYAK_SESSION_COOKIE_NAME", "vinayak_session"),
             legacy_session_cookie_name=_str_env(
@@ -133,6 +144,9 @@ def get_settings() -> AppSettings:
             url=sql_url,
             provider=_detect_sql_provider(sql_url),
         ),
+        observability=ObservabilitySettings(
+            request_id_header=_str_env("REQUEST_ID_HEADER", "X-Request-ID")
+        ),
     )
 
 
@@ -140,15 +154,9 @@ def reset_settings_cache() -> None:
     get_settings.cache_clear()
 
 
-# ---------------- VALIDATION (CLEANED) ---------------- #
+# ---------------- VALIDATION ---------------- #
 
 def validate_settings(*, startup: bool = False) -> AppSettings:
-    """
-    DB AUTH SYSTEM:
-    - NO admin env validation
-    - NO secret validation
-    - NO startup blocking for admin config
-    """
     settings = get_settings()
     errors: list[str] = []
 
@@ -160,9 +168,10 @@ def validate_settings(*, startup: bool = False) -> AppSettings:
         raise SettingsValidationError(" ".join(errors))
 
     return settings
+
+
+# ---------------- DB AUTO INIT RULE ---------------- #
+
 def should_auto_initialize_database() -> bool:
     settings = get_settings()
-
-    # Safe default behavior:
-    # auto init only in dev/test, NOT prod
     return settings.runtime.is_development_like
