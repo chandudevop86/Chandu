@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from vinayak.db.models.user import UserRecord
 
+self.auth = UserAuthService(session)
 
 class UserRepository:
     def __init__(self, session: AsyncSession) -> None:

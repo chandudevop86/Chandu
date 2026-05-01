@@ -28,8 +28,7 @@ logger = logging.getLogger(__name__)
 @app.on_event("startup")
 def startup():
     try:
-        validate_settings(startup=True)
-
+        validate_settings()
         if should_auto_initialize_database():
             initialize_database()
             print("✅ Database initialized")
