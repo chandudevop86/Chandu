@@ -1,7 +1,7 @@
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(
-    schemes=["django_pbkdf2_sha256"],  # ✅ THIS is the key
+    schemes=["pbkdf2_sha256", "pbkdf2-sha256"],  # ✅ THIS is the key
     deprecated="auto",
 )
 
