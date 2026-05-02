@@ -1,8 +1,8 @@
-﻿from __future__ import annotations
+﻿﻿from __future__ import annotations
 
 from typing import Any
 
-from vinayak.metrics import calculate_performance_metrics, calculate_risk_metrics, calculate_validation_metrics, calculate_execution_metrics, generate_readiness_report
+from app.vinayak.observability.metrics import calculate_performance_metrics, calculate_risk_metrics, calculate_validation_metrics, calculate_execution_metrics, generate_readiness_report
 
 
 def compute_trade_metrics(rows: Any) -> dict[str, Any]:

@@ -6,8 +6,8 @@ from typing import Any
 import pandas as pd
 
 from vinayak.analytics.metrics import compute_trade_metrics
-from vinayak.metrics import run_full_metrics_engine
-from vinayak.metrics.utils import closed_trades_only, coerce_trade_records
+from app.vinayak.observability.metrics import run_full_metrics_engine
+from app.vinayak.observability.metrics.utils import closed_trades_only, coerce_trade_records
 from vinayak.validation.trade_evaluation import build_trade_evaluation_summary
 
 

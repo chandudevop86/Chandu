@@ -8,13 +8,13 @@ import os
 import time
 import logging
 
-from vinayak.cache.redis_client import RedisCache
-from vinayak.db.repositories.execution_repository import ExecutionRepository
-from vinayak.db.repositories.signal_repository import SignalRepository
+from app.vinayak.infrastructure.cache.redis_client import RedisCache
+from app.vinayak.infrastructure.db.repositories.execution_repository import ExecutionRepository
+from app.vinayak.infrastructure.db.repositories.signal_repository import SignalRepository
 from vinayak.observability.alerting import build_active_alerts
 from vinayak.observability.observability_logger import tail_events
 from vinayak.observability.observability_metrics import get_observability_snapshot
-from vinayak.db.engine import build_session_factory
+from app.vinayak.infrastructure.db.engine import build_session_factory
 
 logger = logging.getLogger(__name__)
 

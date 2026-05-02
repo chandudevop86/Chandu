@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from vinayak.auth.constants import COOKIE_NAME, LEGACY_COOKIE_NAME
 from vinayak.auth.service import ADMIN_ROLE, AuthenticatedUser, UserAuthService
-from vinayak.db.repositories.user_repository import UserRepository   # ✅ FIX
+from app.vinayak.infrastructure.db.repositories.user_repository import UserRepository   # ✅ FIX
 
 
 class WebAuthBackend:

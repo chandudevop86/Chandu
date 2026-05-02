@@ -5,13 +5,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from vinayak.db.models.execution import ExecutionRecord
-from vinayak.db.models.reviewed_trade import ReviewedTradeRecord
-from vinayak.db.repositories.execution_audit_log_repository import (
+from app.vinayak.infrastructure.db.models.execution import ExecutionRecord
+from app.vinayak.infrastructure.db.models.reviewed_trade import ReviewedTradeRecord
+from app.vinayak.infrastructure.db.repositories.execution_audit_log_repository import (
     ExecutionAuditLogRepository,
 )
-from vinayak.db.repositories.execution_repository import ExecutionRepository
-from vinayak.db.repositories.reviewed_trade_repository import ReviewedTradeRepository
+from app.vinayak.infrastructure.db.repositories.execution_repository import ExecutionRepository
+from app.vinayak.infrastructure.db.repositories.reviewed_trade_repository import ReviewedTradeRepository
 from vinayak.domain.exceptions import DuplicateExecutionRequestError
 from vinayak.domain.statuses import (
     BLOCKED_EXECUTION_STATUSES,
@@ -23,13 +23,13 @@ from vinayak.domain.statuses import (
     normalize_reviewed_trade_status,
 )
 from vinayak.domain.transitions import validate_reviewed_trade_transition
-from vinayak.execution.events import (
+from app.vinayak.domain.execution.events import (
     build_trade_executed_event,
     build_trade_execute_requested_event,
     build_trade_execution_rejected_event,
     build_trade_exited_event,
 )
-from vinayak.execution.outbox_service import OutboxService
+from app.vinayak.domain.execution.outbox_service import OutboxService
 
 
 @dataclass(slots=True, frozen=True)

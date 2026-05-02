@@ -4,7 +4,7 @@ import argparse
 import getpass
 
 from vinayak.auth.service import UserAuthService
-from vinayak.db.session import build_session_factory, initialize_database
+from app.vinayak.infrastructure.db.session import build_session_factory, initialize_database
 
 
 def _parse_args() -> argparse.Namespace:

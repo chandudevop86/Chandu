@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 
 from vinayak.data.cleaner import CleanerConfig, OHLCVValidationError, coerce_ohlcv
-from vinayak.metrics.validation_metrics import compute_setup_quality_score
+from app.vinayak.observability.metrics.validation_metrics import compute_setup_quality_score
 from vinayak.observability.observability_logger import log_event, log_exception
 from vinayak.observability.observability_metrics import increment_metric, record_stage, set_metric
 

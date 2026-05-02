@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from vinayak.domain.models import Candle, CandleBatch, RiskConfig, StrategyConfig, StrategySignalBatch, Timeframe
-from vinayak.market_data.providers.base import MarketDataRequest
-from vinayak.market_data.service import MarketDataService
+from app.vinayak.domain.market_data.providers.base import MarketDataRequest
+from app.vinayak.domain.market_data.service import MarketDataService
 from vinayak.services.strategy_runner import StrategyRunnerService
 
 

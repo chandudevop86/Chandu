@@ -4,10 +4,10 @@ from collections.abc import Mapping
 
 from vinayak.domain.models import CandleBatch, StrategyConfig, StrategySignalBatch
 from vinayak.observability.prometheus import record_signal_generated
-from vinayak.strategies.implementations.breakout import BreakoutStrategy
-from vinayak.strategies.implementations.confirmation import ConfirmationStrategy
-from vinayak.strategies.implementations.demand_supply import DemandSupplyStrategy
-from vinayak.strategies.interfaces.base import TradingStrategy
+from app.vinayak.domain.strategies.implementations.breakout import BreakoutStrategy
+from app.vinayak.domain.strategies.implementations.confirmation import ConfirmationStrategy
+from app.vinayak.domain.strategies.implementations.demand_supply import DemandSupplyStrategy
+from app.vinayak.domain.strategies.interfaces.base import TradingStrategy
 
 
 class StrategyRunnerService:

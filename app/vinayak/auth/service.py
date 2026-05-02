@@ -11,9 +11,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from vinayak.db.models.user import UserRecord
-from vinayak.db.repositories.user_session_repository import UserSessionRepository
-from vinayak.db.repositories.user_repository import UserRepository
+from app.vinayak.infrastructure.db.models.user import UserRecord
+from app.vinayak.infrastructure.db.repositories.user_session_repository import UserSessionRepository
+from app.vinayak.infrastructure.db.repositories.user_repository import UserRepository
 from vinayak.auth.utils import verify_password
 
 

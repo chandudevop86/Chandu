@@ -1,0 +1,67 @@
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+import logging
+
+from app.vinayak.interface.api.middleware.request_context import RequestContextMiddleware
+from vinayak.core.config import (
+    SettingsValidationError,
+    should_auto_initialize_database,
+    validate_settings
+)
+from app.vinayak.infrastructure.db.engine import initialize_database
+
+from app.vinayak.interface.api.routes.catalog import router as catalog_router
+from app.vinayak.interface.api.routes.dashboard import router as dashboard_router
+from app.vinayak.interface.api.routes.executions import router as executions_router
+from app.vinayak.interface.api.routes.health import router as health_router
+from app.vinayak.interface.api.routes.outbox import router as outbox_router
+from app.vinayak.interface.api.routes.production import router as production_router
+from app.vinayak.interface.api.routes.reviewed_trades import router as reviewed_trades_router
+from app.vinayak.interface.api.routes.signals import router as signals_router
+from app.vinayak.interface.api.routes.strategies import router as strategies_router
+from app.vinayak.interface.web.app.main import router as web_router
+
+
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Vinayak Trading Platform", version="0.2.0")
+app.add_middleware(RequestContextMiddleware)
+
+
+# ✅ FIXED STARTUP (ASYNC SAFE)
+@app.on_event("startup")
+async def startup():
+    try:
+        validate_settings()
+
+        if should_auto_initialize_database():
+            await initialize_database()   # ✅ IMPORTANT FIX
+            print("✅ Database initialized")
+        else:
+            print("ℹ️ Skipping DB initialization")
+
+    except Exception as e:
+        print(f"❌ Startup failed: {e}")
+
+
+@app.exception_handler(ValueError)
+def handle_value_error(_, exc):
+    return JSONResponse(status_code=400, content={"error": str(exc)})
+
+
+@app.exception_handler(SettingsValidationError)
+def handle_settings_validation_error(_, exc: SettingsValidationError):
+    return JSONResponse(status_code=503, content={"error": str(exc)})
+
+
+# routers
+app.include_router(health_router)
+app.include_router(signals_router)
+app.include_router(reviewed_trades_router)
+app.include_router(executions_router)
+app.include_router(dashboard_router)
+app.include_router(strategies_router)
+app.include_router(catalog_router)
+app.include_router(outbox_router)
+app.include_router(production_router)
+app.include_router(web_router)

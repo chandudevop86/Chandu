@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from vinayak.messaging.events import EVENT_NOTIFICATION_REQUESTED
+from app.vinayak.infrastructure.messaging.events import EVENT_NOTIFICATION_REQUESTED
 from vinayak.observability.observability_metrics import get_observability_snapshot, increment_metric, set_metric
 
 
