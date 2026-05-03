@@ -81,7 +81,7 @@ def rsi(close: pd.Series, period: int = 14) -> pd.Series:
     gain = delta.clip(lower=0.0)
     loss = (-delta).clip(lower=0.0)
     avg_gain = gain.ewm(alpha=1 / int(period), adjust=False).mean()
-    avg_loss = avg_loss = loss.ewm(alpha=1 / int(period), adjust=False).mean().replace(0.0, float("nan"))
+    avg_loss = loss.ewm(alpha=1 / int(period), adjust=False).mean().replace(0.0, float("nan"))
     rs = avg_gain.div(avg_loss)
     return (100.0 - (100.0 / (1.0 + rs))).fillna(50.0)
 
