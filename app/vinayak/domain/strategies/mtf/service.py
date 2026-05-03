@@ -13,7 +13,7 @@ class AggCandle:
     end_idx: int
     timestamp: object
     open: float
-    high: float
+    high: floata
     low: float
     close: float
 

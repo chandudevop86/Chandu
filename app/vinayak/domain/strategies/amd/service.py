@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from math import floor
-from typing import Any
+from typing import Any, NamedTuple
 
 import pandas as pd
 
@@ -76,6 +76,10 @@ class ConfluenceConfig:
         return base
 
 
+# ---------------------------------------------------------------------------
+# Small pure helpers (unchanged from original)
+# ---------------------------------------------------------------------------
+
 def _normalize_mode(mode: str) -> str:
     raw = str(mode or '').strip().lower()
     if raw == 'conservative':
@@ -115,7 +119,10 @@ def _prepare_df(data: Any) -> pd.DataFrame:
         return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
     df.columns = [str(column).strip().lower() for column in df.columns]
-    rename_map = {'datetime': 'timestamp', 'date': 'timestamp', 'time': 'timestamp', 'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'vol': 'volume'}
+    rename_map = {
+        'datetime': 'timestamp', 'date': 'timestamp', 'time': 'timestamp',
+        'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'vol': 'volume',
+    }
     for source, target in rename_map.items():
         if source in df.columns and target not in df.columns:
             df = df.rename(columns={source: target})
@@ -129,7 +136,12 @@ def _prepare_df(data: Any) -> pd.DataFrame:
     df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
     for column in ['open', 'high', 'low', 'close', 'volume']:
         df[column] = pd.to_numeric(df[column], errors='coerce')
-    df = df.dropna(subset=['timestamp', 'open', 'high', 'low', 'close']).drop_duplicates(subset=['timestamp']).sort_values('timestamp').reset_index(drop=True)
+    df = (
+        df.dropna(subset=['timestamp', 'open', 'high', 'low', 'close'])
+        .drop_duplicates(subset=['timestamp'])
+        .sort_values('timestamp')
+        .reset_index(drop=True)
+    )
     if df.empty:
         return df
 
@@ -174,7 +186,18 @@ def _recent_true(series: pd.Series, index: int, lookback: int) -> int | None:
     return int(matches.index[-1])
 
 
-def _build_signal(row: pd.Series, *, symbol: str, side: str, stop_loss: float, target_price: float, quantity: int, total_score: float, imbalance_type: str, amd_phase: str) -> StrategySignal:
+def _build_signal(
+    row: pd.Series,
+    *,
+    symbol: str,
+    side: str,
+    stop_loss: float,
+    target_price: float,
+    quantity: int,
+    total_score: float,
+    imbalance_type: str,
+    amd_phase: str,
+) -> StrategySignal:
     return StrategySignal(
         strategy_name='AMD + FVG + Supply/Demand',
         symbol=symbol,
@@ -204,6 +227,232 @@ def _build_signal(row: pd.Series, *, symbol: str, side: str, stop_loss: float, t
     )
 
 
+# ---------------------------------------------------------------------------
+# Refactored helpers extracted from run_amd_strategy
+# ---------------------------------------------------------------------------
+
+def _add_signal_columns(candles: pd.DataFrame, cfg: ConfluenceConfig) -> pd.DataFrame:
+    """Append boolean signal columns for manipulation, distribution, and FVG to the candle frame."""
+    candles['bullish_manipulation'] = (
+        (candles['low'] < candles['recent_low']) & (candles['close'] > candles['recent_low'])
+    )
+    candles['bearish_manipulation'] = (
+        (candles['high'] > candles['recent_high']) & (candles['close'] < candles['recent_high'])
+    )
+    candles['bullish_distribution'] = (
+        (candles['close'] > candles['recent_high']) & (candles['close'] > candles['ema_fast'])
+    )
+    candles['bearish_distribution'] = (
+        (candles['close'] < candles['recent_low']) & (candles['close'] < candles['ema_fast'])
+    )
+    candles['bullish_fvg'] = candles['bullish_fvg_gap'] >= float(cfg.min_fvg_size)
+    candles['bearish_fvg'] = candles['bearish_fvg_gap'] >= float(cfg.min_fvg_size)
+    return candles
+
+
+class _Alignments(NamedTuple):
+    """Pre-computed directional alignment flags for a single bar and side."""
+    trend_ok: bool
+    vwap_ok: bool
+    momentum_ok: bool
+
+
+def _compute_alignments(row: pd.Series, is_buy: bool) -> _Alignments:
+    """
+    Check EMA stack, VWAP position, and MACD/RSI momentum for the given direction.
+
+    A bullish trend requires a full EMA stack: close >= EMA9 >= EMA21 >= EMA50 >= EMA200.
+    Bearish is the mirror. VWAP alignment confirms price is on the correct side of
+    the session average. Momentum uses MACD crossover direction and RSI above/below 50.
+    """
+    close = float(row['close'])
+    e9, e21, e50, e200 = float(row['ema_9']), float(row['ema_21']), float(row['ema_50']), float(row['ema_200'])
+    vwap = float(row['vwap'])
+    macd, macd_sig = float(row['macd']), float(row['macd_signal'])
+    rsi = float(row['rsi'])
+
+    if is_buy:
+        trend_ok = close >= e9 >= e21 >= e50 >= e200
+        vwap_ok = close >= vwap
+        momentum_ok = macd >= macd_sig and rsi >= 50.0
+    else:
+        trend_ok = close <= e9 <= e21 <= e50 <= e200
+        vwap_ok = close <= vwap
+        momentum_ok = macd <= macd_sig and rsi <= 50.0
+
+    return _Alignments(trend_ok=trend_ok, vwap_ok=vwap_ok, momentum_ok=momentum_ok)
+
+
+def _passes_filters(
+    row: pd.Series,
+    *,
+    is_buy: bool,
+    recent_manip: int | None,
+    recent_fvg: int | None,
+    alignments: _Alignments,
+    cfg: ConfluenceConfig,
+) -> bool:
+    """
+    Return True only if the bar passes all configured entry filters.
+
+    Checks (in order): liquidity sweep, FVG confirmation, distribution phase,
+    trend alignment, and VWAP alignment. Each gate is individually toggleable
+    via ConfluenceConfig flags.
+    """
+    dist_col = 'bullish_distribution' if is_buy else 'bearish_distribution'
+
+    if cfg.require_liquidity_sweep and recent_manip is None:
+        return False
+    if cfg.require_fvg_confirmation and recent_fvg is None:
+        return False
+    if cfg.require_distribution_phase and not bool(row[dist_col]):
+        return False
+    if cfg.require_trend_alignment and not alignments.trend_ok:
+        return False
+    if cfg.require_vwap_alignment and not alignments.vwap_ok:
+        return False
+    return True
+
+
+def _compute_score(
+    row: pd.Series,
+    *,
+    is_buy: bool,
+    recent_manip: int | None,
+    recent_fvg: int | None,
+    alignments: _Alignments,
+    cfg: ConfluenceConfig,
+) -> float:
+    """
+    Compute confluence score (0–14) from three components:
+
+    - AMD score  (0–7): manipulation sweep present (+4), distribution phase (+3)
+    - FVG score  (0–4): FVG present (+3), oversized FVG bonus (+1)
+    - S/D score  (0–4): EMA trend stack (+2), VWAP alignment (+1), MACD+RSI momentum (+1)
+    """
+    dist_col = 'bullish_distribution' if is_buy else 'bearish_distribution'
+    fvg_gap_col = 'bullish_fvg_gap' if is_buy else 'bearish_fvg_gap'
+
+    amd_score = 4.0 if recent_manip is not None else 0.0
+    amd_score += 3.0 if bool(row[dist_col]) else 0.0
+
+    fvg_score = 3.0 if recent_fvg is not None else 0.0
+    fvg_score += 1.0 if float(row[fvg_gap_col]) >= float(cfg.min_fvg_size) * 1.25 else 0.0
+
+    sd_score = 2.0 if alignments.trend_ok else 0.0
+    sd_score += 1.0 if alignments.vwap_ok else 0.0
+    sd_score += 1.0 if alignments.momentum_ok else 0.0
+
+    return amd_score + fvg_score + sd_score
+
+
+class _Levels(NamedTuple):
+    """Calculated stop-loss and target price for a signal."""
+    stop_loss: float
+    target_price: float
+
+
+def _compute_levels(
+    row: pd.Series,
+    *,
+    is_buy: bool,
+    recent_fvg: int | None,
+    candles: pd.DataFrame,
+    rr_ratio: float,
+    cfg: ConfluenceConfig,
+) -> _Levels:
+    """
+    Derive stop-loss and take-profit from the FVG anchor, bar range, and R:R ratio.
+
+    The stop anchor is placed below the FVG high (BUY) or above the FVG low (SELL),
+    then offset by a dynamic buffer derived from average bar range and tolerance pct.
+    Target is projected from entry using the configured risk-reward ratio.
+    """
+    close = float(row['close'])
+    buffer = max(
+        float(row['avg_range_5']) * 0.2,
+        close * float(cfg.retest_tolerance_pct),
+        0.05,
+    )
+
+    if is_buy:
+        fvg_anchor = float(candles.iloc[recent_fvg]['high']) if recent_fvg is not None else float(row['low'])
+        stop_anchor = min(float(row['low']), fvg_anchor)
+        stop_loss = stop_anchor - buffer
+        if stop_loss >= close:
+            stop_loss = close - max(buffer, 0.1)
+        target_price = close + (close - stop_loss) * float(rr_ratio)
+    else:
+        fvg_anchor = float(candles.iloc[recent_fvg]['low']) if recent_fvg is not None else float(row['high'])
+        stop_anchor = max(float(row['high']), fvg_anchor)
+        stop_loss = stop_anchor + buffer
+        if stop_loss <= close:
+            stop_loss = close + max(buffer, 0.1)
+        target_price = close - (stop_loss - close) * float(rr_ratio)
+
+    return _Levels(stop_loss=stop_loss, target_price=target_price)
+
+
+def _evaluate_bar(
+    candles: pd.DataFrame,
+    index: int,
+    *,
+    side: str,
+    symbol: str,
+    capital: float,
+    risk_pct: float,
+    rr_ratio: float,
+    cfg: ConfluenceConfig,
+    threshold: float,
+) -> StrategySignal | None:
+    """
+    Evaluate a single candle bar for one direction (BUY or SELL).
+
+    Returns a StrategySignal if all filters pass and the confluence score
+    meets the mode threshold, otherwise returns None.
+    """
+    is_buy = side == 'BUY'
+    row = candles.iloc[index]
+    manip_col = 'bullish_manipulation' if is_buy else 'bearish_manipulation'
+    fvg_col = 'bullish_fvg' if is_buy else 'bearish_fvg'
+
+    recent_manip = _recent_true(candles[manip_col], index, int(cfg.max_retest_bars))
+    recent_fvg = _recent_true(candles[fvg_col], index, int(cfg.max_retest_bars))
+    alignments = _compute_alignments(row, is_buy)
+
+    if not _passes_filters(row, is_buy=is_buy, recent_manip=recent_manip, recent_fvg=recent_fvg, alignments=alignments, cfg=cfg):
+        return None
+
+    total_score = _compute_score(row, is_buy=is_buy, recent_manip=recent_manip, recent_fvg=recent_fvg, alignments=alignments, cfg=cfg)
+    if total_score < threshold:
+        return None
+
+    levels = _compute_levels(row, is_buy=is_buy, recent_fvg=recent_fvg, candles=candles, rr_ratio=rr_ratio, cfg=cfg)
+    quantity = _calculate_quantity(capital, risk_pct, float(row['close']), levels.stop_loss)
+    if quantity <= 0:
+        return None
+
+    # BUY signals occur at the accumulation/manipulation phase;
+    # SELL signals occur at distribution. Tag accordingly.
+    amd_phase = 'manipulation' if is_buy else 'distribution'
+
+    return _build_signal(
+        row,
+        symbol=symbol,
+        side=side,
+        stop_loss=levels.stop_loss,
+        target_price=levels.target_price,
+        quantity=quantity,
+        total_score=total_score,
+        imbalance_type='FVG',
+        amd_phase=amd_phase,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
 def run_amd_strategy(
     data: Any,
     symbol: str,
@@ -212,10 +461,34 @@ def run_amd_strategy(
     rr_ratio: float = 2.0,
     config: ConfluenceConfig | None = None,
 ) -> list[StrategySignal]:
+    """
+    Run the AMD + FVG + Supply/Demand confluence strategy over OHLCV candle data.
+
+    For each bar (starting after the warm-up period) and each direction (BUY/SELL),
+    the strategy:
+      1. Checks daily trade limits and per-direction cooldown.
+      2. Delegates bar evaluation to _evaluate_bar(), which handles filtering,
+         scoring, level calculation, and signal construction.
+      3. On the first valid signal for a bar, records it and moves to the next bar
+         (one signal per bar, BUY evaluated before SELL).
+
+    Args:
+        data:      OHLCV data as a DataFrame or list of dicts.
+        symbol:    Instrument ticker/symbol string.
+        capital:   Total capital available for position sizing.
+        risk_pct:  Risk per trade as a percentage (e.g. 1.0 = 1%) or fraction.
+        rr_ratio:  Risk-to-reward ratio for target calculation (default 2.0).
+        config:    ConfluenceConfig instance; defaults to Balanced mode if omitted.
+
+    Returns:
+        List of StrategySignal objects, one per confirmed entry bar.
+    """
     cfg = config or ConfluenceConfig()
     candles = _prepare_df(data)
     if candles.empty:
         return []
+
+    candles = _add_signal_columns(candles, cfg)
 
     mode = _normalize_mode(cfg.mode)
     threshold = _score_threshold(cfg, mode)
@@ -223,17 +496,12 @@ def run_amd_strategy(
     trade_counts: dict[str, int] = {}
     last_signal_index: dict[str, int] = {'BUY': -10_000, 'SELL': -10_000}
 
-    candles['bullish_manipulation'] = (candles['low'] < candles['recent_low']) & (candles['close'] > candles['recent_low'])
-    candles['bearish_manipulation'] = (candles['high'] > candles['recent_high']) & (candles['close'] < candles['recent_high'])
-    candles['bullish_distribution'] = (candles['close'] > candles['recent_high']) & (candles['close'] > candles['ema_fast'])
-    candles['bearish_distribution'] = (candles['close'] < candles['recent_low']) & (candles['close'] < candles['ema_fast'])
-    candles['bullish_fvg'] = candles['bullish_fvg_gap'] >= float(cfg.min_fvg_size)
-    candles['bearish_fvg'] = candles['bearish_fvg_gap'] >= float(cfg.min_fvg_size)
-
     start_index = max(5, int(cfg.accumulation_lookback), int(cfg.manipulation_lookback))
+
     for index in range(start_index, len(candles)):
         row = candles.iloc[index]
         day_key = str(row['session_day'])
+
         if trade_counts.get(day_key, 0) >= max(1, int(cfg.max_trades_per_day)):
             continue
 
@@ -241,75 +509,25 @@ def run_amd_strategy(
             if index - last_signal_index[side] < int(cfg.duplicate_signal_cooldown_bars):
                 continue
 
-            is_buy = side == 'BUY'
-            manip_col = 'bullish_manipulation' if is_buy else 'bearish_manipulation'
-            dist_col = 'bullish_distribution' if is_buy else 'bearish_distribution'
-            fvg_col = 'bullish_fvg' if is_buy else 'bearish_fvg'
-            recent_manip = _recent_true(candles[manip_col], index, int(cfg.max_retest_bars))
-            recent_fvg = _recent_true(candles[fvg_col], index, int(cfg.max_retest_bars))
-            if bool(cfg.require_liquidity_sweep) and recent_manip is None:
-                continue
-            if bool(cfg.require_fvg_confirmation) and recent_fvg is None:
-                continue
-            if bool(cfg.require_distribution_phase) and not bool(row[dist_col]):
-                continue
-
-            trend_ok = float(row['close']) >= float(row['ema_9']) >= float(row['ema_21']) >= float(row['ema_50']) >= float(row['ema_200']) if is_buy else float(row['close']) <= float(row['ema_9']) <= float(row['ema_21']) <= float(row['ema_50']) <= float(row['ema_200'])
-            vwap_ok = float(row['close']) >= float(row['vwap']) if is_buy else float(row['close']) <= float(row['vwap'])
-            momentum_ok = float(row['macd']) >= float(row['macd_signal']) and float(row['rsi']) >= 50.0 if is_buy else float(row['macd']) <= float(row['macd_signal']) and float(row['rsi']) <= 50.0
-            if bool(cfg.require_trend_alignment) and not trend_ok:
-                continue
-            if bool(cfg.require_vwap_alignment) and not vwap_ok:
-                continue
-
-            amd_score = 4.0 if recent_manip is not None else 0.0
-            amd_score += 3.0 if bool(row[dist_col]) else 0.0
-            fvg_score = 3.0 if recent_fvg is not None else 0.0
-            fvg_score += 1.0 if float(row['bullish_fvg_gap'] if is_buy else row['bearish_fvg_gap']) >= float(cfg.min_fvg_size) * 1.25 else 0.0
-            sd_score = 2.0 if trend_ok else 0.0
-            sd_score += 1.0 if vwap_ok else 0.0
-            sd_score += 1.0 if momentum_ok else 0.0
-            total_score = amd_score + fvg_score + sd_score
-            if total_score < threshold:
-                continue
-
-            buffer = max(float(row['avg_range_5']) * 0.2, float(row['close']) * float(cfg.retest_tolerance_pct), 0.05)
-            if is_buy:
-                stop_anchor = min(float(row['low']), float(candles.iloc[recent_fvg]['high']) if recent_fvg is not None else float(row['low']))
-                stop_loss = stop_anchor - buffer
-                if stop_loss >= float(row['close']):
-                    stop_loss = float(row['close']) - max(buffer, 0.1)
-                target_price = float(row['close']) + ((float(row['close']) - stop_loss) * float(rr_ratio))
-                imbalance_type = 'FVG'
-            else:
-                stop_anchor = max(float(row['high']), float(candles.iloc[recent_fvg]['low']) if recent_fvg is not None else float(row['high']))
-                stop_loss = stop_anchor + buffer
-                if stop_loss <= float(row['close']):
-                    stop_loss = float(row['close']) + max(buffer, 0.1)
-                target_price = float(row['close']) - ((stop_loss - float(row['close'])) * float(rr_ratio))
-                imbalance_type = 'FVG'
-
-            quantity = _calculate_quantity(capital, risk_pct, float(row['close']), stop_loss)
-            if quantity <= 0:
-                continue
-
-            trades.append(
-                _build_signal(
-                    row,
-                    symbol=symbol,
-                    side=side,
-                    stop_loss=stop_loss,
-                    target_price=target_price,
-                    quantity=quantity,
-                    total_score=total_score,
-                    imbalance_type=imbalance_type,
-                    amd_phase='distribution',
-                )
+            signal = _evaluate_bar(
+                candles,
+                index,
+                side=side,
+                symbol=symbol,
+                capital=capital,
+                risk_pct=risk_pct,
+                rr_ratio=rr_ratio,
+                cfg=cfg,
+                threshold=threshold,
             )
+
+            if signal is None:
+                continue
+
+            trades.append(signal)
             trade_counts[day_key] = trade_counts.get(day_key, 0) + 1
             last_signal_index[side] = index
+            # One signal per bar: once BUY fires, skip SELL evaluation for this bar.
             break
 
     return trades
-
-
